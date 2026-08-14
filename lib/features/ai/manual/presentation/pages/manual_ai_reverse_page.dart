@@ -310,7 +310,10 @@ class ManualAiReversePage extends HookConsumerWidget {
             Align(
               alignment: Alignment.centerRight,
               child: ElevatedButton.icon(
-                onPressed: step == _UiStep.awaitingAi ? onConfirm : null,
+                // Enabled at both promptReady and awaitingAi: after generating
+                // the prompt the user pastes the AI reply and confirms directly.
+                // (Empty input is guarded inside onConfirm with a toast.)
+                onPressed: onConfirm,
                 icon: const Icon(Icons.check, size: 18),
                 label: Text(isZh ? '确认并执行' : 'Confirm & run'),
               ),
