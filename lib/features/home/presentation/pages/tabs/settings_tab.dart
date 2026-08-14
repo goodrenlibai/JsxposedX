@@ -3,6 +3,7 @@ import 'package:JsxposedX/common/widgets/cache_image.dart';
 import 'package:JsxposedX/common/widgets/custom_dIalog.dart';
 import 'package:JsxposedX/core/constants/assets_constants.dart';
 import 'package:JsxposedX/core/extensions/context_extensions.dart';
+import 'package:JsxposedX/core/routes/routes/home_route.dart';
 import 'package:JsxposedX/core/providers/locale_provider.dart';
 import 'package:JsxposedX/core/providers/status_management_provider.dart';
 import 'package:JsxposedX/core/providers/theme_provider.dart';
@@ -16,6 +17,7 @@ import 'package:JsxposedX/features/home/presentation/widgets/theme_color_picker.
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 const String _forumHost = 'muxue.pro';
@@ -138,6 +140,24 @@ class SettingsTab extends HookConsumerWidget {
                     return;
                   }
                   AIConfigSheet.show(context);
+                },
+              ),
+            ],
+          ),
+        ),
+        SliverToBoxAdapter(child: SizedBox(height: 20.h)),
+        SliverToBoxAdapter(
+          child: SettingsSection(
+            title: context.isZh ? '模块' : 'Modules',
+            items: [
+              SettingsTile(
+                icon: Icons.extension_rounded,
+                title: context.isZh ? '内置模块配置' : 'Bundled Modules',
+                subtitle: context.isZh
+                    ? '查看、初始化并导出内置 Magisk 模块'
+                    : 'Browse, initialize and export bundled Magisk modules',
+                onTap: () {
+                  context.push(HomeRoute.modulesConfig);
                 },
               ),
             ],

@@ -1,0 +1,6 @@
+id=jsxposedx-frida
+name=JsxposedxFrida
+version=v2.0.1
+versionCode=201
+author=挽风
+description=Injects frida gadget via zygisk.Thanks to Lico-N for technical support.git:https://github.com/lico-n/ZygiskFrida (flavor: zygisk)

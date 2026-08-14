@@ -9,6 +9,7 @@ import 'package:JsxposedX/core/providers/status_management_provider.dart';
 import 'package:JsxposedX/core/routes/routes/home_route.dart';
 import 'package:JsxposedX/core/utils/procedure_utils.dart';
 import 'package:JsxposedX/features/ai/presentation/providers/runtime/ai_chat_runtime_provider.dart';
+import 'package:JsxposedX/features/modules/presentation/providers/modules_provider.dart';
 import 'package:JsxposedX/features/project/presentation/providers/project_action_provider.dart';
 import 'package:JsxposedX/features/project/presentation/providers/project_query_provider.dart';
 import 'package:flutter/material.dart';
@@ -91,6 +92,8 @@ class SplashPage extends HookConsumerWidget {
           ref.read(isFridaProvider.future),
           ref.read(initProjectProvider.future),
           ref.read(projectsProvider.future),
+          // 首次启动时初始化内置 Magisk 模块（幂等，不依赖网络）。
+          ref.read(initializeAllModulesProvider.future),
         ]);
       });
 

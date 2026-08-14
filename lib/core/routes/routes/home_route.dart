@@ -2,6 +2,8 @@ import 'package:JsxposedX/common/pages/splash_page.dart';
 import 'package:JsxposedX/core/models/app_info.dart';
 import 'package:JsxposedX/features/ai/presentation/pages/ai_reverse_page.dart';
 import 'package:JsxposedX/features/home/presentation/pages/tabs/repository_tab/pages/script_detail_page.dart';
+import 'package:JsxposedX/features/modules/presentation/pages/modules_config_page.dart';
+import 'package:JsxposedX/features/ai/manual/presentation/pages/manual_ai_reverse_page.dart';
 import 'package:JsxposedX/features/so_analysis/presentation/pages/so_analysis_page.dart';
 import 'package:JsxposedX/features/home/presentation/pages/home_page.dart';
 import 'package:JsxposedX/features/project/presentation/pages/crypto/crypto_audit_js_editor_page.dart';
@@ -32,8 +34,10 @@ class HomeRoute {
   static const fridaProject = '/fridaProject/:packageName';
   static const fridaEditor = '/fridaEditor/:packageName';
   static const aiReverse = '/aiReverse/:packageName';
+  static const manualAiReverse = '/manualAiReverse/:packageName';
   static const cryptoAuditLog = '/cryptoAuditLog/:packageName';
   static const cryptoAuditJsEditor = '/cryptoAuditJsEditor/:packageName';
+  static const modulesConfig = '/modulesConfig';
   static const apiManual = '/apiManual';
   static const aiApiManual = '/aiApiManual/:apiType';
   static const fridaApiManual = '/fridaApiManual';
@@ -60,6 +64,9 @@ class HomeRoute {
 
   static String toAiReverse({required String packageName}) =>
       '/aiReverse/$packageName';
+
+  static String toManualAiReverse({required String packageName}) =>
+      '/manualAiReverse/$packageName';
 
   static String toCryptoAuditLog({required String packageName}) =>
       '/cryptoAuditLog/$packageName';
@@ -132,6 +139,13 @@ List<GoRoute> homeRoutes = [
     },
   ),
   GoRoute(
+    path: HomeRoute.manualAiReverse,
+    builder: (context, state) {
+      final packageName = state.pathParameters["packageName"]!;
+      return ManualAiReversePage(packageName: packageName);
+    },
+  ),
+  GoRoute(
     path: HomeRoute.cryptoAuditLog,
     builder: (context, state) {
       final packageName = state.pathParameters["packageName"]!;
@@ -144,6 +158,10 @@ List<GoRoute> homeRoutes = [
       final packageName = state.pathParameters["packageName"]!;
       return CryptoAuditJsEditorPage(packageName: packageName);
     },
+  ),
+  GoRoute(
+    path: HomeRoute.modulesConfig,
+    builder: (context, state) => const ModulesConfigPage(),
   ),
   GoRoute(
     path: HomeRoute.apiManual,

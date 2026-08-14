@@ -1,6 +1,7 @@
 import 'package:JsxposedX/common/widgets/custom_dIalog.dart';
 import 'package:JsxposedX/core/extensions/context_extensions.dart';
 import 'package:JsxposedX/core/models/ai_session.dart';
+import 'package:JsxposedX/features/ai/manual/presentation/pages/manual_qa_page.dart';
 import 'package:JsxposedX/features/ai/presentation/providers/environments/api_manual_chat_environment_provider.dart';
 import 'package:JsxposedX/features/ai/presentation/providers/runtime/ai_chat_runtime_provider.dart';
 import 'package:JsxposedX/features/ai/presentation/runtime/ai_chat_environment_initializer.dart';
@@ -12,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -223,6 +225,17 @@ class AiApiManualPage extends HookConsumerWidget {
           tooltip: context.l10n.aiDeleteHistory,
           color: Colors.redAccent,
           onTap: () => _deleteHistory(context, ref, systemPrompt, packageName),
+        ),
+        _AppBarAction(
+          icon: Icons.auto_awesome_motion_rounded,
+          tooltip: context.isZh ? '人工发送' : 'Manual send',
+          color: Colors.pinkAccent,
+          onTap: () => context.push(
+            ManualQaPage(
+              title: apiType.value == 'frida' ? 'Frida API' : 'JsxposedX API',
+              systemPrompt: systemPrompt,
+            ),
+          ),
         ),
         SizedBox(width: 8.w),
       ],

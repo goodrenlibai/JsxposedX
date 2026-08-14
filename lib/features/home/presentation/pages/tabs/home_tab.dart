@@ -6,7 +6,6 @@ import 'package:JsxposedX/common/widgets/ref_error.dart';
 import 'package:JsxposedX/core/extensions/context_extensions.dart';
 import 'package:JsxposedX/core/providers/status_management_provider.dart';
 import 'package:JsxposedX/core/routes/routes/home_route.dart';
-import 'package:JsxposedX/core/utils/url_helper.dart';
 import 'package:JsxposedX/features/ai/presentation/providers/runtime/ai_chat_runtime_provider.dart';
 import 'package:JsxposedX/features/frida/presentation/providers/frida_query_provider.dart';
 import 'package:JsxposedX/features/home/presentation/widgets/activation_card.dart';
@@ -110,15 +109,16 @@ class HomeTab extends HookConsumerWidget {
                           } else {
                             return Padding(
                               padding: EdgeInsets.only(right: 10.w, top: 6.h),
-                              child: TextButton(
-                                onPressed: () => UrlHelper.openUrlInBrowser(
-                                  url:
-                                      "https://www.yuque.com/ababa-haoqq/hake3e/ts43ti2b0a0n52cw?singleDoc",
-                                ),
-                                child: Text(
+                              child: TextButton.icon(
+                                onPressed: () {
+                                  context.push(HomeRoute.modulesConfig);
+                                },
+                                icon: const Icon(Icons.extension_rounded,
+                                    size: 16),
+                                label: Text(
                                   context.isChinese
-                                      ? "下载Magisk模块"
-                                      : "Download module for Magisk",
+                                      ? "内置模块配置"
+                                      : "Bundled modules",
                                 ),
                               ),
                             );

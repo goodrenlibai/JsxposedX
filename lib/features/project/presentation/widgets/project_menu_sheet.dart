@@ -65,6 +65,21 @@ class ProjectMenuSheet extends HookConsumerWidget {
         },
       ),
       _MenuData(
+        icon: Icons.auto_awesome_motion_rounded,
+        label: context.isZh ? '人工发送' : 'Manual AI',
+        color: Colors.pinkAccent,
+        onTap: () {
+          final isHook = ref.read(isHookProvider).value ?? false;
+          if (!isHook) {
+            ToastMessage.show(context.l10n.pleaseActivateXposed);
+            return;
+          }
+          context.push(
+            HomeRoute.toManualAiReverse(packageName: app.packageName),
+          );
+        },
+      ),
+      _MenuData(
         icon: Icons.terminal_rounded,
         label: context.l10n.xposedProject,
         color: Colors.indigo,

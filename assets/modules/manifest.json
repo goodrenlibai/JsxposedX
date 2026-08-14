@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "modules": [
+    {
+      "id": "jsxposedx-frida",
+      "name": "JsxposedxFrida",
+      "version": "v2.0.1",
+      "versionCode": 201,
+      "author": "挽风",
+      "description": "Injects frida gadget via zygisk.Thanks to Lico-N for technical support.git:https://github.com/lico-n/ZygiskFrida",
+      "category": "zygisk",
+      "flavor": "zygisk",
+      "rootPath": "assets/modules/jsxposedx-frida",
+      "assets": [
+        "module.prop",
+        "customize.sh",
+        "uninstall.sh",
+        "verify.sh",
+        "config.json",
+        "META-INF/com/google/android/update-binary",
+        "META-INF/com/google/android/updater-script"
+      ],
+      "optionalAssets": [
+        "lib/armeabi-v7a.so",
+        "lib/arm64-v8a.so",
+        "lib/x86.so",
+        "lib/x86_64.so",
+        "gadget/libgadget-arm.so.xz",
+        "gadget/libgadget-arm64.so.xz",
+        "gadget/libgadget-x86.so.xz",
+        "gadget/libgadget-x64.so.xz"
+      ],
+      "exportFileName": "JsxposedxFrida-v2.0.1-zygisk-release.zip"
+    }
+  ]
+}
