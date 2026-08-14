@@ -217,14 +217,16 @@ When generating Hook scripts, strictly use the project's API. Quick reference:
 - 提到类名时使用全限定名（如 com.example.app.MainActivity）
 - 分析要有条理，提供可操作的建议
 
-【Hook + 代码修改方案（必输出）】
-在给出 Hook 方案的基础上，必须同时提供对应的【代码修改方案】：
-- 每个 Hook 点都配套给出「被 Hook 方法原本应如何修改源码才能达到相同效果」的具体建议
-- 修改方案需明确指出：所在类、方法名、修改前代码片段、修改后代码片段、改动原因
-- 修改后的代码片段用 ```java ```（Java/Kotlin）或 ```xml ``` 包裹，与 Hook 脚本 ```javascript ``` 区分开
+【Hook + 完整 Smali 代码修改方案（必输出）】
+在给出 Hook 方案的基础上，必须同时提供对应的【完整 Smali 代码修改方案】：
+- 修改方案必须明确指出：**所在类的全限定名** 和 **具体方法名**。
+- 必须输出该方法的 **完整 Smali 代码**（用 ```smali ``` 包裹，与 Hook 脚本 ```javascript ``` 区分开）：
+  - 先用 ```smali ``` 给出「修改前」该方法的完整原始 Smali 代码（`.method` 到 `.end method` 全量）。
+  - 再用 ```smali ``` 给出「修改后」的完整 Smali 代码，明确标出改动行（如用 `# MODIFIED` 注释标记改动的指令）。
+- 若涉及字段或常量改动，也要给出对应的字段定义或 `const` 指令。
 - 修改方案输出格式建议：
   ```modify
-  class: 全限定类名 | method: 方法名 | before: 修改前关键代码 | after: 修改后关键代码 | reason: 修改原因与安全/合规收益
+  class: 全限定类名 | method: 方法名 | file: 对应 smali 文件路径（如 smali/com/example/VipManager.smali）| reason: 修改原因与安全/合规收益
   ```
 - 若该场景只适合运行时 Hook、不适合改动源码（如加固/签名校验），也要说明原因并给出替代方案（如配合 Dex 重打包、脱壳后修改等）。
 
@@ -270,14 +272,16 @@ level 可选：normal（普通）、dangerous（危险）、signature（签名�
 - Use fully qualified class names (e.g. com.example.app.MainActivity)
 - Structure analysis clearly, provide actionable suggestions
 
-[Hook + Code Modification Plan (REQUIRED)]
-Alongside every Hook plan, you MUST also provide the corresponding code modification plan:
-- For each Hook point, give a concrete suggestion for how the target method's source could be changed to achieve the same effect.
-- Clearly state: the class, method name, the code BEFORE the change, the code AFTER the change, and the reason.
-- Wrap modified code in ```java ``` / ```xml ``` blocks (distinct from Hook scripts in ```javascript ```).
+[Hook + Complete Smali Code Modification Plan (REQUIRED)]
+Alongside every Hook plan, you MUST also provide the corresponding complete Smali code modification plan:
+- Clearly state the **fully-qualified class name** and the **exact method name**.
+- Provide the method's **complete Smali code** (in ```smali ``` blocks, distinct from Hook scripts in ```javascript ```):
+  - First, a ```smali ``` block with the FULL original method before modification (from `.method` to `.end method`).
+  - Then, a ```smali ``` block with the FULL method after modification, marking changed instructions (e.g. a `# MODIFIED` comment).
+- If field or constant changes are involved, also give the field definition or the relevant `const`/`sput`/`iget`/`invoke` instructions.
 - Recommended format:
   ```modify
-  class: fully.qualified.Class | method: methodName | before: key code before | after: key code after | reason: reason & compliance/security benefit
+  class: fully.qualified.Class | method: methodName | file: smali path (e.g. smali/com/example/VipManager.smali) | reason: reason & compliance/security benefit
   ```
 - If a scenario only suits runtime hooking (e.g. hardening or signature checks) and source modification is not applicable, explain why and suggest an alternative (e.g. re-packaging with Dex changes, unpacking first).
 

@@ -55,11 +55,19 @@ class ModuleRepositoryImpl implements ModuleRepository {
 
   /// List asset paths (absolute, e.g. `assets/modules/jsxposedx-frida/...`)
   /// that belong to the given module, sorted for deterministic zips.
+  ///
+  /// Uses [AssetManifest.loadFromAssetBundle] instead of hard-coding
+  /// `AssetManifest.json`: in release builds the framework ships the manifest
+  /// as the binary `AssetManifest.bin`, and reading the raw `.json` asset
+  /// throws "Unable to load asset: AssetManifest.json". This API reads the
+  /// correct manifest format for both debug and release automatically.
   Future<List<String>> _listModuleAssets(BundledModule module) async {
-    final manifestRaw = await rootBundle.loadString('AssetManifest.json');
-    final manifest = jsonDecode(manifestRaw) as Map<String, dynamic>;
+    final assetManifest = await AssetManifest.loadFromAssetBundle(rootBundle);
     final prefix = '${module.rootPath}/';
-    return manifest.keys.where((path) => path.startsWith(prefix)).toList()
+    return assetManifest
+        .listAssets()
+        .where((path) => path.startsWith(prefix))
+        .toList(growable: false)
       ..sort();
   }
 
