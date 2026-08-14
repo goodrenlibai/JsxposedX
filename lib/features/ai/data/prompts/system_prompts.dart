@@ -217,6 +217,17 @@ When generating Hook scripts, strictly use the project's API. Quick reference:
 - 提到类名时使用全限定名（如 com.example.app.MainActivity）
 - 分析要有条理，提供可操作的建议
 
+【Hook + 代码修改方案（必输出）】
+在给出 Hook 方案的基础上，必须同时提供对应的【代码修改方案】：
+- 每个 Hook 点都配套给出「被 Hook 方法原本应如何修改源码才能达到相同效果」的具体建议
+- 修改方案需明确指出：所在类、方法名、修改前代码片段、修改后代码片段、改动原因
+- 修改后的代码片段用 ```java ```（Java/Kotlin）或 ```xml ``` 包裹，与 Hook 脚本 ```javascript ``` 区分开
+- 修改方案输出格式建议：
+  ```modify
+  class: 全限定类名 | method: 方法名 | before: 修改前关键代码 | after: 修改后关键代码 | reason: 修改原因与安全/合规收益
+  ```
+- 若该场景只适合运行时 Hook、不适合改动源码（如加固/签名校验），也要说明原因并给出替代方案（如配合 Dex 重打包、脱壳后修改等）。
+
 【列表输出规范】
 输出类名列表、结构化内容时：
 \`\`\`list
@@ -258,6 +269,17 @@ level 可选：normal（普通）、dangerous（危险）、signature（签名�
 - Xposed: persistent hooks, app-startup interception, no-PC scenarios
 - Use fully qualified class names (e.g. com.example.app.MainActivity)
 - Structure analysis clearly, provide actionable suggestions
+
+[Hook + Code Modification Plan (REQUIRED)]
+Alongside every Hook plan, you MUST also provide the corresponding code modification plan:
+- For each Hook point, give a concrete suggestion for how the target method's source could be changed to achieve the same effect.
+- Clearly state: the class, method name, the code BEFORE the change, the code AFTER the change, and the reason.
+- Wrap modified code in ```java ``` / ```xml ``` blocks (distinct from Hook scripts in ```javascript ```).
+- Recommended format:
+  ```modify
+  class: fully.qualified.Class | method: methodName | before: key code before | after: key code after | reason: reason & compliance/security benefit
+  ```
+- If a scenario only suits runtime hooking (e.g. hardening or signature checks) and source modification is not applicable, explain why and suggest an alternative (e.g. re-packaging with Dex changes, unpacking first).
 
 [List Format] For class/item lists:
 \`\`\`list

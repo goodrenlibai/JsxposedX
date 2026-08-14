@@ -16,7 +16,8 @@ void main() {
     test('parses payload map and serializes back', () {
       final dto = OverlayWindowPayloadDto.fromRaw(<String, dynamic>{
         'sceneId': 7,
-        'displayMode': OverlayWindowDisplayMode.panel,
+        // fromRaw reads the serialized .name string, not the enum object.
+        'displayMode': OverlayWindowDisplayMode.panel.name,
       });
 
       expect(dto.sceneId, 7);
@@ -62,7 +63,8 @@ void main() {
   group('OverlayWindowEventDto', () {
     test('parses bubble tap event', () {
       final event = OverlayWindowEventDto.maybeFromRaw(<String, dynamic>{
-        'event': OverlayWindowEventType.bubbleTap,
+        // maybeFromRaw expects the serialized .name string.
+        'event': OverlayWindowEventType.bubbleTap.name,
       });
 
       expect(event, isNotNull);
@@ -73,7 +75,7 @@ void main() {
 
     test('parses drag end event with host position', () {
       final event = OverlayWindowEventDto.maybeFromRaw(<String, dynamic>{
-        'event': OverlayWindowEventType.bubbleDragEnd,
+        'event': OverlayWindowEventType.bubbleDragEnd.name,
         'x': '12.5',
         'y': 30,
       });

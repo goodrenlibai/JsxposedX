@@ -1,0 +1,2 @@
+/home/user/JsxposedX/test/feature/ai/presentation/providers/chat/ai_chat_action_provider_reasoning_replay_test.dart
+/home/user/JsxposedX/test/features/memory_tool_overlay/presentation/providers/memory_ai_overlay_selection_provider_test.dart

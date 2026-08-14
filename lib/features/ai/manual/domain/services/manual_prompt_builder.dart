@@ -21,7 +21,7 @@ class ManualPromptBuilder {
       final required = (def.parameters['required'] as List?)?.cast<String>() ??
           const <String>[];
       final requiredHint = required.isEmpty ? '' : ' (必填: ${required.join(', ')})';
-      buf.writeln('- `$_wrapName(def.name)`: ${def.description}$requiredHint');
+      buf.writeln('- `${_wrapName(def.name)}`: ${def.description}$requiredHint');
     }
     buf
       ..writeln()

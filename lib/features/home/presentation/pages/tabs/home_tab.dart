@@ -9,7 +9,9 @@ import 'package:JsxposedX/core/routes/routes/home_route.dart';
 import 'package:JsxposedX/features/ai/presentation/providers/runtime/ai_chat_runtime_provider.dart';
 import 'package:JsxposedX/features/frida/presentation/providers/frida_query_provider.dart';
 import 'package:JsxposedX/features/home/presentation/widgets/activation_card.dart';
+import 'package:JsxposedX/features/home/presentation/widgets/home_entry_button.dart';
 import 'package:JsxposedX/features/home/presentation/widgets/info_card.dart';
+import 'package:JsxposedX/features/home/presentation/widgets/select_app_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -137,12 +139,67 @@ class HomeTab extends HookConsumerWidget {
                     RefError(onRetry: () => ref.invalidate(isFridaProvider)),
                 loading: () => const Loading(),
               ),
+              SizedBox(height: 16.h),
+              _quickEntryArea(context, ref),
               SizedBox(height: 12.h),
               InfoCard(),
             ]),
           ),
         ),
       ],
+    );
+  }
+
+  /// 快捷入口区：人工模式 / 免 root 模式
+  /// - 人工模式：不依赖 AI 激活状态，可直接进入逆向工程。
+  /// - 免 root 模式：无需任何激活即可使用所有免 root 即可实现的功能。
+  Widget _quickEntryArea(BuildContext context, WidgetRef ref) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 10.w),
+      child: Row(
+        children: [
+          Expanded(
+            child: HomeEntryButton(
+              icon: Icons.auto_awesome_motion_rounded,
+              color: Colors.pinkAccent,
+              label: context.isZh ? '人工模式' : 'Manual Mode',
+              subtitle: context.isZh
+                  ? '无需激活 AI'
+                  : 'No AI activation',
+              onTap: () {
+                SelectAppSheet.show(
+                  context,
+                  onSelected: (appInfo) async {
+                    if (Navigator.canPop(context)) Navigator.pop(context);
+                    Future.microtask(() {
+                      if (!context.mounted) return;
+                      context.push(
+                        HomeRoute.toManualAiReverse(
+                          packageName: appInfo.packageName,
+                        ),
+                      );
+                    });
+                  },
+                );
+              },
+            ),
+          ),
+          SizedBox(width: 10.w),
+          Expanded(
+            child: HomeEntryButton(
+              icon: Icons.verified_user_rounded,
+              color: const Color(0xFF38B26D),
+              label: context.isZh ? '免 root 模式' : 'Root-free Mode',
+              subtitle: context.isZh
+                  ? '无需任何激活'
+                  : 'No activation required',
+              onTap: () {
+                context.push(HomeRoute.rootFreeMode);
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 

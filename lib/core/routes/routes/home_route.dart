@@ -4,6 +4,7 @@ import 'package:JsxposedX/features/ai/presentation/pages/ai_reverse_page.dart';
 import 'package:JsxposedX/features/home/presentation/pages/tabs/repository_tab/pages/script_detail_page.dart';
 import 'package:JsxposedX/features/modules/presentation/pages/modules_config_page.dart';
 import 'package:JsxposedX/features/ai/manual/presentation/pages/manual_ai_reverse_page.dart';
+import 'package:JsxposedX/features/rootfree/presentation/pages/root_free_mode_page.dart';
 import 'package:JsxposedX/features/so_analysis/presentation/pages/so_analysis_page.dart';
 import 'package:JsxposedX/features/home/presentation/pages/home_page.dart';
 import 'package:JsxposedX/features/project/presentation/pages/crypto/crypto_audit_js_editor_page.dart';
@@ -38,6 +39,7 @@ class HomeRoute {
   static const cryptoAuditLog = '/cryptoAuditLog/:packageName';
   static const cryptoAuditJsEditor = '/cryptoAuditJsEditor/:packageName';
   static const modulesConfig = '/modulesConfig';
+  static const rootFreeMode = '/rootFreeMode';
   static const apiManual = '/apiManual';
   static const aiApiManual = '/aiApiManual/:apiType';
   static const fridaApiManual = '/fridaApiManual';
@@ -162,6 +164,10 @@ List<GoRoute> homeRoutes = [
   GoRoute(
     path: HomeRoute.modulesConfig,
     builder: (context, state) => const ModulesConfigPage(),
+  ),
+  GoRoute(
+    path: HomeRoute.rootFreeMode,
+    builder: (context, state) => const RootFreeModePage(),
   ),
   GoRoute(
     path: HomeRoute.apiManual,

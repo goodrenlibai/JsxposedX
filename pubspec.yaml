@@ -92,6 +92,8 @@ flutter:
     - assets/
     - assets/images/
     - assets/raws/
+    - assets/modules/
+    - assets/modules/jsxposedx-frida/
   fonts:
     - family: AliMama
       fonts:

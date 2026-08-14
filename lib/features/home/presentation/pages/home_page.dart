@@ -3,18 +3,14 @@ import 'package:JsxposedX/common/widgets/app_bottom_sheet.dart';
 import 'package:JsxposedX/common/widgets/loading.dart';
 import 'package:JsxposedX/core/extensions/context_extensions.dart';
 import 'package:JsxposedX/core/providers/theme_provider.dart';
-import 'package:JsxposedX/core/utils/procedure_utils.dart';
 import 'package:JsxposedX/features/home/presentation/pages/tabs/home_tab.dart';
 import 'package:JsxposedX/features/home/presentation/pages/tabs/project_tab.dart';
 import 'package:JsxposedX/features/home/presentation/pages/tabs/repository_tab/repository_tab.dart';
 import 'package:JsxposedX/features/home/presentation/pages/tabs/settings_tab.dart';
-import 'package:JsxposedX/features/home/presentation/providers/check_query_provider.dart';
-import 'package:JsxposedX/features/home/presentation/utils/update_check_helper.dart';
 import 'package:JsxposedX/features/home/presentation/widgets/home_bottom_bar.dart';
 import 'package:JsxposedX/features/home/presentation/widgets/home_center_dock_button.dart';
 import 'package:JsxposedX/features/home/presentation/widgets/notice_bottom_sheet.dart';
 import 'package:JsxposedX/features/home/presentation/widgets/select_app_sheet.dart';
-import 'package:JsxposedX/features/home/presentation/widgets/update_check_dialog.dart';
 import 'package:JsxposedX/features/memory_tool_overlay/presentation/pages/memory_tool_overlay.dart';
 import 'package:JsxposedX/features/overlay_window/presentation/providers/overlay_window_action_provider.dart';
 import 'package:JsxposedX/features/overlay_window/presentation/providers/overlay_window_query_provider.dart';
@@ -37,7 +33,6 @@ class HomePage extends HookConsumerWidget {
     final fabSize = 58.w;
     final bottomBarHeight = 60.h;
 
-    final versionCode = useState(0);
     // PageView 控制器
     final pageController = usePageController(initialPage: 0);
     // 页面列表
@@ -80,10 +75,6 @@ class HomePage extends HookConsumerWidget {
     ];
 
     useEffect(() {
-      Future.microtask(() async {
-        versionCode.value = await ProcedureUtils.getBuildNumber();
-      });
-
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!context.mounted) return;
         AppBottomSheet.show(
@@ -92,30 +83,7 @@ class HomePage extends HookConsumerWidget {
           child: const NoticeBottomSheet(),
         );
 
-        Future.microtask(() async {
-          try {
-            final localBuildNumber = versionCode.value > 0
-                ? versionCode.value
-                : await ProcedureUtils.getBuildNumber();
-            final update = await ref.read(updateInfoProvider.future);
-
-            if (!context.mounted) return;
-            if (!shouldShowUpdateDialog(
-              update: update,
-              localBuildNumber: localBuildNumber,
-            )) {
-              return;
-            }
-
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!context.mounted) return;
-              UpdateCheckDialog.show(context, update: update);
-            });
-          } catch (error, stackTrace) {
-            debugPrint('Failed to check update: $error');
-            debugPrintStack(stackTrace: stackTrace);
-          }
-        });
+        // 更新提示（“发现新版本”）已彻底移除，避免频繁打扰用户。
       });
 
       return null;

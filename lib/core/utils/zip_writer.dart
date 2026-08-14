@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 /// A single entry (file) that will be written into a ZIP archive.
@@ -123,7 +124,7 @@ class ZipWriter {
   }
 
   static Uint8List _utf8(String value) {
-    return Uint8List.fromList(value.codeUnits);
+    return Uint8List.fromList(utf8.encode(value));
   }
 
   static void _writeU16(ByteData data, int offset, int value) {
