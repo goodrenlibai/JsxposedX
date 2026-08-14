@@ -13,7 +13,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
-import 'package:go_router/go_router.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -230,10 +229,12 @@ class AiApiManualPage extends HookConsumerWidget {
           icon: Icons.auto_awesome_motion_rounded,
           tooltip: context.isZh ? '人工发送' : 'Manual send',
           color: Colors.pinkAccent,
-          onTap: () => context.push(
-            ManualQaPage(
-              title: apiType.value == 'frida' ? 'Frida API' : 'JsxposedX API',
-              systemPrompt: systemPrompt,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ManualQaPage(
+                title: apiType.value == 'frida' ? 'Frida API' : 'JsxposedX API',
+                systemPrompt: systemPrompt,
+              ),
             ),
           ),
         ),

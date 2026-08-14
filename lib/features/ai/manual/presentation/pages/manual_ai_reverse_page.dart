@@ -169,7 +169,13 @@ class ManualAiReversePage extends HookConsumerWidget {
                       children: [
                         if (initError.value != null)
                           _ErrorCard(message: initError.value!),
-                        _buildRequestBody(context),
+                        _buildRequestBody(
+                          context,
+                          requestInput: requestInput,
+                          showReset: controller.value?.hasSession ?? false,
+                          onReset: resetRound,
+                          onGenerate: generatePrompt,
+                        ),
                         const SizedBox(height: 16),
                         if (currentPrompt.value != null)
                           ManualCopyCard(
@@ -183,7 +189,12 @@ class ManualAiReversePage extends HookConsumerWidget {
                         if (step.value == _UiStep.promptReady ||
                             step.value == _UiStep.awaitingAi ||
                             step.value == _UiStep.resultReady)
-                          _buildAiResponseBox(context),
+                          _buildAiResponseBox(
+                            context,
+                            aiResponseInput: aiResponseInput,
+                            isExecuting: step.value == _UiStep.executing,
+                            onConfirm: confirmAiResponse,
+                          ),
                         if (currentResult.value != null)
                           ManualCopyCard(
                             title: isZh ? '外部 AI 结果 · 工具已执行' : 'External AI result · tools executed',
@@ -194,7 +205,12 @@ class ManualAiReversePage extends HookConsumerWidget {
                         if (_hasHistory(controller.value))
                           const SizedBox(height: 16),
                         if (_hasHistory(controller.value))
-                          _buildHistory(context, controller.value!),
+                          _buildHistory(
+                            context,
+                            controller.value!,
+                            onContinue: continueRound,
+                            onRestart: restart,
+                          ),
                       ],
                     ),
                   ),
@@ -204,7 +220,13 @@ class ManualAiReversePage extends HookConsumerWidget {
     );
   }
 
-  Widget _buildRequestBody(BuildContext context) {
+  Widget _buildRequestBody(
+    BuildContext context, {
+    required TextEditingController requestInput,
+    required bool showReset,
+    required VoidCallback onReset,
+    required VoidCallback onGenerate,
+  }) {
     final isZh = context.isZh;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -229,15 +251,15 @@ class ManualAiReversePage extends HookConsumerWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            if (controller.value?.hasSession ?? false)
+            if (showReset)
               TextButton.icon(
-                onPressed: resetRound,
+                onPressed: onReset,
                 icon: const Icon(Icons.replay, size: 18),
                 label: Text(isZh ? '重置本轮' : 'Reset round'),
               ),
             const SizedBox(width: 8),
             ElevatedButton.icon(
-              onPressed: generatePrompt,
+              onPressed: onGenerate,
               icon: const Icon(Icons.auto_awesome, size: 18),
               label: Text(isZh ? '生成提示词' : 'Generate prompt'),
             ),
@@ -247,7 +269,12 @@ class ManualAiReversePage extends HookConsumerWidget {
     );
   }
 
-  Widget _buildAiResponseBox(BuildContext context) {
+  Widget _buildAiResponseBox(
+    BuildContext context, {
+    required TextEditingController aiResponseInput,
+    required bool isExecuting,
+    required VoidCallback onConfirm,
+  }) {
     final isZh = context.isZh;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -273,10 +300,8 @@ class ManualAiReversePage extends HookConsumerWidget {
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             ElevatedButton.icon(
-              onPressed: step.value == _UiStep.executing
-                  ? null
-                  : confirmAiResponse,
-              icon: step.value == _UiStep.executing
+              onPressed: isExecuting ? null : onConfirm,
+              icon: isExecuting
                   ? const SizedBox(
                       width: 16,
                       height: 16,
@@ -291,7 +316,12 @@ class ManualAiReversePage extends HookConsumerWidget {
     );
   }
 
-  Widget _buildHistory(BuildContext context, ManualReverseController ctrl) {
+  Widget _buildHistory(
+    BuildContext context,
+    ManualReverseController ctrl, {
+    required VoidCallback onContinue,
+    required VoidCallback onRestart,
+  }) {
     final isZh = context.isZh;
     final rounds = ctrl.rounds;
     return Column(
@@ -328,13 +358,13 @@ class ManualAiReversePage extends HookConsumerWidget {
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             TextButton.icon(
-              onPressed: continueRound,
+              onPressed: onContinue,
               icon: const Icon(Icons.play_arrow, size: 18),
               label: Text(isZh ? '继续' : 'Continue'),
             ),
             const SizedBox(width: 8),
             TextButton.icon(
-              onPressed: restart,
+              onPressed: onRestart,
               icon: const Icon(Icons.refresh, size: 18),
               label: Text(isZh ? '重新开始' : 'Restart'),
             ),

@@ -182,7 +182,7 @@ class ModulesConfigPage extends HookConsumerWidget {
                                 padding: const EdgeInsets.only(left: 24),
                                 child: Text(
                                   '${r.outputPath}\n'
-                                  '${(r.bytesWritten ?? 0) / (1024 * 1024):.2f} MB',
+                                  '${_formatSize(r.bytesWritten ?? 0)}',
                                   style: const TextStyle(fontSize: 12),
                                 ),
                               ),
@@ -227,8 +227,22 @@ class ModulesConfigPage extends HookConsumerWidget {
   }
 }
 
+/// Format a byte count into a human-readable size string.
+String _formatSize(int bytes) {
+  if (bytes < 1024) {
+    return '$bytes B';
+  }
+  if (bytes < 1024 * 1024) {
+    return '${(bytes / 1024).toStringAsFixed(2)} KB';
+  }
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+}
+
 class _ExportProgressBanner extends StatelessWidget {
-  const _ExportProgressBanner({required this.progress, required this.isZh});
+  const _ExportProgressBanner({
+    required this.progress,
+    required this.isZh,
+  });
 
   final (int, int) progress;
   final bool isZh;
