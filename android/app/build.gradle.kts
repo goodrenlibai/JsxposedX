@@ -151,6 +151,7 @@ dependencies {
     implementation("io.github.skylot:jadx-core:1.5.1") { isTransitive = true }
     implementation("io.github.skylot:jadx-dex-input:1.5.1") { isTransitive = true }
     implementation("org.smali:baksmali:2.5.2")
+    implementation("org.smali:smali:2.5.2")
     implementation("org.smali:dexlib2:2.5.2")
     add("api100CompileOnly", project(":libxposed:api"))
     add("api101CompileOnly", "io.github.libxposed:api:101.0.1")

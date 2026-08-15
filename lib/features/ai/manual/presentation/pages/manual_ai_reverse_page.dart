@@ -1,9 +1,12 @@
 import 'package:JsxposedX/common/pages/toast.dart';
 import 'package:JsxposedX/core/extensions/context_extensions.dart';
+import 'package:JsxposedX/core/utils/file_picker_util.dart';
 import 'package:JsxposedX/features/ai/domain/services/ai_chat_tool_catalog.dart';
 import 'package:JsxposedX/features/ai/manual/domain/services/manual_reverse_controller.dart';
 import 'package:JsxposedX/features/ai/manual/presentation/widgets/manual_step_banner.dart';
 import 'package:JsxposedX/features/ai/presentation/providers/environments/apk_reverse_chat_environment_provider.dart';
+import 'package:JsxposedX/features/smali/domain/services/smali_patch_service.dart';
+import 'package:JsxposedX/features/smali/domain/services/smali_plan_parser.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -176,6 +179,43 @@ class ManualAiReversePage extends HookConsumerWidget {
       ToastMessage.show(isZh ? '已复制' : 'Copied');
     }
 
+    // ── 一键修改：根据当前 AI 输出的 smali 方案，选择 APK 并应用修改 ──
+    Future<void> oneClickModify() async {
+      final result = currentResult.value ?? currentPrompt.value ?? '';
+      final modifications = SmaliPlanParser.parse(result);
+      if (modifications.isEmpty) {
+        ToastMessage.show(
+          isZh ? '未从 AI 输出中解析到 smali 修改方案' : 'No smali plan parsed from AI output',
+        );
+        return;
+      }
+
+      // 选择 APK 文件。
+      final picked = await FilePickerUtil.pickApk();
+      if (picked == null || picked.path == null) {
+        return; // user cancelled
+      }
+
+      SmartDialog.showLoading(msg: isZh ? '正在解析并修改 dex...' : 'Applying smali patches...');
+      try {
+        final patchResult = await SmaliPatchService().applySmaliPatch(
+          apkPath: picked.path!,
+          modifications: modifications,
+        );
+        SmartDialog.dismiss();
+        if (patchResult.isSuccess) {
+          ToastMessage.show(
+            '${isZh ? '修改完成（未签名）: ' : 'Done (unsigned): '}${patchResult.outputPath}',
+          );
+        } else {
+          ToastMessage.show(patchResult.message);
+        }
+      } catch (e) {
+        SmartDialog.dismiss();
+        ToastMessage.show('${isZh ? '一键修改失败' : 'Modify failed'}: $e');
+      }
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(isZh ? '人工发送 · 逆向' : 'Manual Send · Reverse'),
@@ -215,6 +255,7 @@ class ManualAiReversePage extends HookConsumerWidget {
                           currentPrompt: currentPrompt.value,
                           currentResult: currentResult.value,
                           onConfirm: confirmAiResponse,
+                          onOneClickModify: oneClickModify,
                         ),
                       ],
                     ),
@@ -245,6 +286,7 @@ class ManualAiReversePage extends HookConsumerWidget {
     required String? currentPrompt,
     required String? currentResult,
     required VoidCallback onConfirm,
+    VoidCallback? onOneClickModify,
   }) {
     switch (step) {
       case _UiStep.input:
@@ -349,6 +391,17 @@ class ManualAiReversePage extends HookConsumerWidget {
               maxHeight: 200,
               selectable: true,
             ),
+            if (onOneClickModify != null) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: onOneClickModify,
+                  icon: const Icon(Icons.auto_fix_high, size: 18),
+                  label: Text(isZh ? '一键修改' : 'One-click modify'),
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             _SectionTitle(
               isZh

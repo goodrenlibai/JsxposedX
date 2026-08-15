@@ -2,6 +2,7 @@ package com.jsxposed.x
 
 import com.jsxposed.x.core.bridge.apk_analysis_native.ApkAnalysisNative
 import com.jsxposed.x.core.bridge.apk_analysis_native.ApkAnalysisNativeImpl
+import com.jsxposed.x.core.bridge.apk_analysis_native.SmaliPatchNative
 import com.jsxposed.x.core.bridge.app_native.AppNative
 import com.jsxposed.x.core.bridge.pinia_native.PiniaNativeImpl
 import com.jsxposed.x.core.bridge.file_picker_native.OverlayFilePickerNative
@@ -36,5 +37,6 @@ object NativeProvider {
         ZygiskFridaNative.setUp(messenger, ZygiskFridaNativeImpl(context))
         OverlayFilePickerNative.register(context, messenger)
         UrlHelperNative.register(context, messenger)
+        SmaliPatchNative.register(context, messenger)
     }
 }
