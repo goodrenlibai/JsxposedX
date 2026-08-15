@@ -55,6 +55,11 @@ object SmaliPatcher {
      *
      * [workDir] is a writable directory (e.g. the app cache dir) used for the
      * intermediate smali/dex files and the output APK.
+     *
+     * Each modification names a `dexPath`, but the target class may actually
+     * live in a different dex (classes.dex / classes2.dex / ...). To be
+     * robust, we auto-detect which dex contains each class and patch the dex
+     * where the class actually resides.
      */
     fun apply(apkPath: String, modifications: List<SmaliModification>, workDir: File = File(System.getProperty("java.io.tmpdir") ?: ".")): SmaliPatchResult {
         if (modifications.isEmpty()) {
@@ -69,9 +74,17 @@ object SmaliPatcher {
         val output = File(workDir, "modified_${src.name}")
 
         return try {
-            // Group modifications by dex entry.
-            val byDex = modifications.groupBy { it.dexPath }
+            // 1. Determine, for each class, which dex entry actually contains it.
+            val dexForClass = detectDexContainingClass(apkPath, modifications)
 
+            // 2. Group modifications by the *resolved* dex entry.
+            val byDex = HashMap<String, MutableList<SmaliModification>>()
+            for (mod in modifications) {
+                val dex = dexForClass[mod.className] ?: mod.dexPath
+                byDex.getOrPut(dex) { mutableListOf() }.add(mod)
+            }
+
+            // 3. Rewrite the APK, patching the dex files that have changes.
             val srcZip = ZipFile(src)
             val outZip = ZipOutputStream(output.outputStream().buffered())
 
@@ -83,13 +96,13 @@ object SmaliPatcher {
                         val name = entry.name
 
                         if (name.endsWith(".dex") && byDex.containsKey(name)) {
-                            // Patch this dex.
-                            val patchedDex = patchDexEntry(zin.getInputStream(entry), byDex[name]!!, workDir, name)
+                            val patchedDex = patchDexEntry(
+                                zin.getInputStream(entry), byDex[name]!!, workDir, name,
+                            )
                             zout.putNextEntry(ZipEntry(name))
                             patchedDex.inputStream().use { it.copyTo(zout) }
                             zout.closeEntry()
                         } else {
-                            // Copy unchanged.
                             zout.putNextEntry(ZipEntry(name))
                             if (!entry.isDirectory) {
                                 zin.getInputStream(entry).use { it.copyTo(zout) }
@@ -103,10 +116,46 @@ object SmaliPatcher {
             SmaliPatchResult(output.absolutePath, true, "修改成功，输出未签名 APK")
         } catch (e: Exception) {
             SmaliPatchResult(apkPath, false, "修改失败: ${e.message}")
-        } finally {
-            // Keep output; clean intermediate smali/dex only.
-            // (workDir removal is handled by caller or app cache cleanup.)
         }
+    }
+
+    /** Determine which dex entry contains each target class. */
+    private fun detectDexContainingClass(
+        apkPath: String,
+        modifications: List<SmaliModification>,
+    ): Map<String, String> {
+        val result = HashMap<String, String>()
+        val descriptorByClass = modifications.associate {
+            it.className to "L${it.className.replace('.', '/')};"
+        }
+
+        ZipFile(apkPath).use { zip ->
+            val dexEntries = zip.entries().asSequence()
+                .filter { it.name.endsWith(".dex") && !it.isDirectory }
+                .toList()
+            for (entry in dexEntries) {
+                val dexFile = File.createTempFile("probe_", ".dex")
+                try {
+                    zip.getInputStream(entry).use { input ->
+                        dexFile.outputStream().use { input.copyTo(it) }
+                    }
+                    val dex = DexFileFactory.loadDexFile(dexFile, Opcodes.getDefault())
+                    val present = dex.classes.map { it.type }.toHashSet()
+                    for ((cls, desc) in descriptorByClass) {
+                        if (present.contains(desc) && !result.containsKey(cls)) {
+                            result[cls] = entry.name
+                        }
+                    }
+                } catch (_: Exception) {
+                    // If a dex can't be parsed, ignore and continue.
+                } finally {
+                    dexFile.delete()
+                }
+                // Stop early if all classes are located.
+                if (result.size == descriptorByClass.size) break
+            }
+        }
+        return result
     }
 
     private fun patchDexEntry(
@@ -168,30 +217,33 @@ object SmaliPatcher {
     private fun findClassSmaliFile(smaliDir: File, className: String): File? {
         // Class name may contain '$' for inner classes.
         val parts = className.split('.')
-        // Build path: smali/package/path/Name.smali (inner classes use '$').
-        val pathParts = mutableListOf<String>()
-        var i = 0
-        while (i < parts.size) {
-            // Inner class is denoted by '$'; keep it in the same file segment.
-            val seg = parts[i]
-            if (seg.contains('$')) {
-                pathParts.add(seg)
-                i++
-            } else if (i < parts.size - 1) {
-                pathParts.add(seg)
-                i++
-            } else {
-                pathParts.add(seg)
-                i++
-            }
-        }
-        val fileName = pathParts.last() + ".smali"
-        val dirs = pathParts.dropLast(1)
-        // Also search recursively in case of package differences.
+        val fileName = parts.last() + ".smali"
+        val dirs = parts.dropLast(1)
+
+        // Direct path: smali/package/path/Name.smali
         val direct = File(File(smaliDir, dirs.joinToString("/")), fileName)
         if (direct.exists()) return direct
-        // Fallback: recursive search by filename.
-        return smaliDir.walkTopDown().firstOrNull { it.isFile && it.name == fileName }
+
+        // Fallback 1: recursive search by filename (handles package mismatches).
+        val byName = smaliDir.walkTopDown().firstOrNull { it.isFile && it.name == fileName }
+        if (byName != null) return byName
+
+        // Fallback 2: search for a smali file whose first line declares this
+        // class descriptor (e.g. `.class public Lcom/duapps/recorder/mb0;`).
+        // This is the most reliable match even when the filename is obfuscated
+        // or differs from the class name.
+        val descriptor = "L${className.replace('.', '/')};"
+        return smaliDir.walkTopDown().firstOrNull { file ->
+            if (!file.isFile || !file.name.endsWith(".smali")) return@firstOrNull false
+            try {
+                val head = file.useLines { lines ->
+                    lines.take(50).joinToString("\n")
+                }
+                head.contains(descriptor)
+            } catch (_: Exception) {
+                false
+            }
+        }
     }
 
     /** Find the exact `.method ... name(...)...` line for the given method. */
