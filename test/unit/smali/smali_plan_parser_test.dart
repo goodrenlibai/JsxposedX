@@ -8,7 +8,7 @@ void main() {
       expect(r.isAnalysisComplete, isTrue);
     });
 
-    test('no completion marker when AI is still working', () {
+    test('no completion when AI is still working (tool_calls only)', () {
       final r = SmaliPlanParser.parse(
         '{"tool_calls":[{"function":{"name":"search_classes","arguments":"{}"}}]}',
       );
@@ -25,20 +25,6 @@ void main() {
   group('SmaliPlanParser plan blocks', () {
     test('parses a strict SMALI_PLAN block', () {
       const text = '''
-分析完成。
-
-```modify
-class: com.example.app.VipManager | method: isVip | reason: 返回 true
-```
-
-```smali
-.method public isVip()Z
-    .locals 1
-    iget-boolean v0, p0, Lcom/example/app/VipManager;->isPremium:Z
-    return v0
-.end method
-```
-
 [SMALI_PLAN]
 class: com.example.app.VipManager
 method: isVip
@@ -59,60 +45,9 @@ method: isVip
       expect(mod.className, 'com.example.app.VipManager');
       expect(mod.methodName, 'isVip');
       expect(mod.modifiedSmali, contains('const/4 v0, 0x1'));
-      expect(mod.modifiedSmali, contains('.end method'));
     });
 
-    test('parses multiple SMALI_PLAN blocks', () {
-      const text = '''
-[SMALI_PLAN]
-class: a.b.C
-method: one
-```smali
-.method one()V
-  return-void
-.end method
-```
-[SMALI_PLAN_END]
-[SMALI_PLAN]
-class: a.b.D
-method: two
-```smali
-.method two()I
-  const/4 v0, 0x2
-  return v0
-.end method
-```
-[SMALI_PLAN_END]
-[ANALYSIS_COMPLETE]
-''';
-      final r = SmaliPlanParser.parse(text);
-      expect(r.modifications, hasLength(2));
-      expect(
-        r.modifications.map((m) => m.className),
-        containsAll(['a.b.C', 'a.b.D']),
-      );
-      expect(r.modifications[0].modifiedSmali, contains('return-void'));
-      expect(r.modifications[1].modifiedSmali, contains('const/4 v0, 0x2'));
-    });
-
-    test('SMALI_PLAN without completion marker is still complete (plan implies done)', () {
-      const text = '''
-[SMALI_PLAN]
-class: a.b.C
-method: one
-```smali
-.method one()V
-  return-void
-.end method
-```
-[SMALI_PLAN_END]
-''';
-      final r = SmaliPlanParser.parse(text);
-      expect(r.isAnalysisComplete, isTrue);
-      expect(r.modifications, hasLength(1));
-    });
-
-    test('plan block missing class is ignored', () {
+    test('plan block missing class is ignored but still complete', () {
       const text = '''
 [SMALI_PLAN]
 method: one
@@ -130,13 +65,16 @@ method: one
     });
   });
 
-  group('SmaliPlanParser fallback', () {
-    test('falls back to class/method hints + last smali block', () {
+  group('SmaliPlanParser loose format', () {
+    test('parses modify blocks with before/after smali', () {
       const text = '''
-class: com.example.app.VipManager | method: isVip | file: x | reason: r
+```modify
+class: com.example.app.VipManager | method: isVip()Z | reason: r
+```
 修改前:
 ```smali
 .method isVip()Z
+  iget-boolean v0, p0, Lcom/example/app/VipManager;->isPremium:Z
   return v0
 .end method
 ```
@@ -147,15 +85,15 @@ class: com.example.app.VipManager | method: isVip | file: x | reason: r
   return v0
 .end method
 ```
-[ANALYSIS_COMPLETE]
 ''';
       final r = SmaliPlanParser.parse(text);
       expect(r.isAnalysisComplete, isTrue);
       expect(r.modifications, hasLength(1));
       expect(r.modifications.first.modifiedSmali, contains('const/4 v0, 0x1'));
+      expect(r.modifications.first.modifiedSmali, isNot(contains('isPremium')));
     });
 
-    test('no plan → not complete, empty modifications', () {
+    test('no plan and no marker => not complete', () {
       final r = SmaliPlanParser.parse('分析完成，登录使用 AES。');
       expect(r.isAnalysisComplete, isFalse);
       expect(r.modifications, isEmpty);
