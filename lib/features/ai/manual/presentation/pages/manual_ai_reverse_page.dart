@@ -200,6 +200,66 @@ class ManualAiReversePage extends HookConsumerWidget {
     }
 
     // ── 一键修改：仅当 AI 已完成任务且解析出 smali 方案时才启用 ──
+    // 显示修改成功 + 新安装包完整路径的对话框
+    void showModifySuccessDialog(
+      BuildContext context, {
+      required bool isZh,
+      required String outputPath,
+      required String message,
+    }) {
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(isZh ? '修改成功' : 'Done'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isZh
+                      ? '新安装包（未签名）已生成，保存位置如下：'
+                      : 'New APK (unsigned) saved at:',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 10),
+                SelectableText(
+                  outputPath,
+                  style: const TextStyle(fontSize: 13, color: Colors.blueGrey),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  message,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  isZh
+                      ? '新包默认与原包在同一目录。安装前请先签名。'
+                      : 'It is saved next to the original APK by default. Sign it before installing.',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                await Clipboard.setData(ClipboardData(text: outputPath));
+                ToastMessage.show(isZh ? '路径已复制' : 'Path copied');
+              },
+              child: Text(isZh ? '复制路径' : 'Copy path'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(isZh ? '确定' : 'OK'),
+            ),
+          ],
+        ),
+      );
+    }
+
     Future<void> oneClickModify() async {
       // Use the smali plans parsed from the AI answer (set when AI completed).
       final modifications = smaliMods.value;
@@ -225,9 +285,13 @@ class ManualAiReversePage extends HookConsumerWidget {
           modifications: modifications,
         );
         SmartDialog.dismiss();
+        if (!context.mounted) return;
         if (patchResult.isSuccess) {
-          ToastMessage.show(
-            '${isZh ? '修改完成（未签名）: ' : 'Done (unsigned): '}${patchResult.outputPath}',
+          showModifySuccessDialog(
+            context,
+            isZh: isZh,
+            outputPath: patchResult.outputPath,
+            message: patchResult.message,
           );
         } else {
           ToastMessage.show(patchResult.message);

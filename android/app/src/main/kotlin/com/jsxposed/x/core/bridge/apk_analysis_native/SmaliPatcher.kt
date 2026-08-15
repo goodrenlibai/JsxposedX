@@ -1,12 +1,17 @@
 package com.jsxposed.x.core.bridge.apk_analysis_native
 
-import org.jf.baksmali.Baksmali
+import org.jf.baksmali.Adaptors.ClassDefinition
 import org.jf.baksmali.BaksmaliOptions
+import org.jf.baksmali.formatter.BaksmaliWriter
 import org.jf.dexlib2.DexFileFactory
 import org.jf.dexlib2.Opcodes
+import org.jf.dexlib2.iface.ClassDef
+import org.jf.dexlib2.writer.io.FileDataStore
+import org.jf.dexlib2.writer.pool.DexPool
 import org.jf.smali.Smali
 import org.jf.smali.SmaliOptions
 import java.io.File
+import java.io.StringWriter
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -38,30 +43,31 @@ data class SmaliPatchResult(
 
 /**
  * Applies smali modifications to the dex files inside an APK and writes a NEW
- * APK (unsigned — no re-signing is performed). The pipeline is:
+ * APK (unsigned — no re-signing is performed).
  *
- *   1. Extract each `classes*.dex` from the APK.
- *   2. Use baksmali to disassemble the dex into a smali directory.
- *   3. Locate the target class's `.smali` file and replace the target method's
- *      block with the AI-provided complete smali.
- *   4. Use smali to reassemble the smali directory back into a dex.
- *   5. Rebuild the APK, swapping the patched dex entry in place (no signing).
+ * PERFORMANCE (fast, similar to MT Manager's "Dex 编辑器++"):
+ * Instead of disassembling + reassembling the ENTIRE dex to/from smali text
+ * (the naive approach, which is very slow), we only text-round-trip the
+ * *modified class(es)*:
+ *
+ *   1. Load the source dex via dexlib2 ([DexFileFactory.loadDexFile]).
+ *   2. For each target class: disassemble ONLY that class to smali text, apply
+ *      the method replacement, then reassemble ONLY that class (via a tiny
+ *      smali project) to obtain a modified [ClassDef].
+ *   3. Build a [DexPool]: byte-copy every UNMODIFIED class directly
+ *      ([DexPool.internClass]) and intern the modified class(es).
+ *   4. Write the pool to the output dex.
+ *
+ * This keeps the bulk of the dex as a fast binary copy, which is why it's much
+ * closer to MT Manager's speed.
  */
 object SmaliPatcher {
 
-    /**
-     * Apply the given modifications to [apkPath]. Returns the path of the
-     * produced (unsigned) APK, or throws on failure.
-     *
-     * [workDir] is a writable directory (e.g. the app cache dir) used for the
-     * intermediate smali/dex files and the output APK.
-     *
-     * Each modification names a `dexPath`, but the target class may actually
-     * live in a different dex (classes.dex / classes2.dex / ...). To be
-     * robust, we auto-detect which dex contains each class and patch the dex
-     * where the class actually resides.
-     */
-    fun apply(apkPath: String, modifications: List<SmaliModification>, workDir: File = File(System.getProperty("java.io.tmpdir") ?: ".")): SmaliPatchResult {
+    fun apply(
+        apkPath: String,
+        modifications: List<SmaliModification>,
+        workDir: File = File(System.getProperty("java.io.tmpdir") ?: "."),
+    ): SmaliPatchResult {
         if (modifications.isEmpty()) {
             return SmaliPatchResult(apkPath, false, "没有要应用的修改")
         }
@@ -71,13 +77,17 @@ object SmaliPatcher {
         }
 
         workDir.mkdirs()
-        val output = File(workDir, "modified_${src.name}")
+
+        // Output goes to the SAME directory as the original APK by default.
+        val srcParent = src.parentFile?.takeIf { it.exists() && it.canWrite() }
+        val output = File(srcParent ?: workDir, "modified_${src.name}")
+        val usedFallbackDir = srcParent == null
 
         return try {
-            // 1. Determine, for each class, which dex entry actually contains it.
+            // 1. Determine which dex contains each target class.
             val dexForClass = detectDexContainingClass(apkPath, modifications)
 
-            // 2. Group modifications by the *resolved* dex entry.
+            // 2. Group modifications by the resolved dex entry.
             val byDex = HashMap<String, MutableList<SmaliModification>>()
             for (mod in modifications) {
                 val dex = dexForClass[mod.className] ?: mod.dexPath
@@ -85,22 +95,18 @@ object SmaliPatcher {
             }
 
             // 3. Rewrite the APK, patching the dex files that have changes.
-            val srcZip = ZipFile(src)
-            val outZip = ZipOutputStream(output.outputStream().buffered())
-
-            srcZip.use { zin ->
-                outZip.use { zout ->
+            ZipFile(src).use { zin ->
+                ZipOutputStream(output.outputStream().buffered()).use { zout ->
                     val entries = zin.entries()
                     while (entries.hasMoreElements()) {
                         val entry = entries.nextElement()
                         val name = entry.name
-
                         if (name.endsWith(".dex") && byDex.containsKey(name)) {
-                            val patchedDex = patchDexEntry(
+                            val patched = patchDexEntry(
                                 zin.getInputStream(entry), byDex[name]!!, workDir, name,
                             )
                             zout.putNextEntry(ZipEntry(name))
-                            patchedDex.inputStream().use { it.copyTo(zout) }
+                            patched.inputStream().use { it.copyTo(zout) }
                             zout.closeEntry()
                         } else {
                             zout.putNextEntry(ZipEntry(name))
@@ -112,8 +118,12 @@ object SmaliPatcher {
                     }
                 }
             }
-
-            SmaliPatchResult(output.absolutePath, true, "修改成功，输出未签名 APK")
+            val msg = if (usedFallbackDir) {
+                "修改成功（原目录不可写，已保存到: ${output.absolutePath}）"
+            } else {
+                "修改成功，未签名 APK 已保存到: ${output.absolutePath}"
+            }
+            SmaliPatchResult(output.absolutePath, true, msg)
         } catch (e: Exception) {
             SmaliPatchResult(apkPath, false, "修改失败: ${e.message}")
         }
@@ -128,7 +138,6 @@ object SmaliPatcher {
         val descriptorByClass = modifications.associate {
             it.className to "L${it.className.replace('.', '/')};"
         }
-
         ZipFile(apkPath).use { zip ->
             val dexEntries = zip.entries().asSequence()
                 .filter { it.name.endsWith(".dex") && !it.isDirectory }
@@ -136,9 +145,7 @@ object SmaliPatcher {
             for (entry in dexEntries) {
                 val dexFile = File.createTempFile("probe_", ".dex")
                 try {
-                    zip.getInputStream(entry).use { input ->
-                        dexFile.outputStream().use { input.copyTo(it) }
-                    }
+                    zip.getInputStream(entry).use { it.copyTo(dexFile.outputStream()) }
                     val dex = DexFileFactory.loadDexFile(dexFile, Opcodes.getDefault())
                     val present = dex.classes.map { it.type }.toHashSet()
                     for ((cls, desc) in descriptorByClass) {
@@ -147,17 +154,20 @@ object SmaliPatcher {
                         }
                     }
                 } catch (_: Exception) {
-                    // If a dex can't be parsed, ignore and continue.
+                    // Ignore dex files that can't be parsed.
                 } finally {
                     dexFile.delete()
                 }
-                // Stop early if all classes are located.
                 if (result.size == descriptorByClass.size) break
             }
         }
         return result
     }
 
+    /**
+     * Patch a single dex. Only the modified classes are round-tripped through
+     * smali text; everything else is byte-copied via [DexPool].
+     */
     private fun patchDexEntry(
         dexInput: java.io.InputStream,
         mods: List<SmaliModification>,
@@ -165,85 +175,106 @@ object SmaliPatcher {
         dexEntryName: String,
     ): File {
         val safeName = dexEntryName.replace('/', '_')
-        val dexFile = File(workDir, "${safeName}.in")
-        dexFile.outputStream().use { dexInput.copyTo(it) }
+        val srcDex = File(workDir, "${safeName}.in")
+        dexInput.use { it.copyTo(srcDex.outputStream()) }
 
-        val smaliDir = File(workDir, "${safeName}_smali")
-        smaliDir.mkdirs()
+        val opcodes = Opcodes.getDefault()
+        val source = DexFileFactory.loadDexFile(srcDex, opcodes)
+        val pool = DexPool(opcodes)
 
-        // Disassemble the dex to smali.
-        val dex = DexFileFactory.loadDexFile(dexFile, Opcodes.getDefault())
-        val options = BaksmaliOptions()
-        val ok = Baksmali.disassembleDexFile(dex, smaliDir, 1, options)
-        if (!ok) {
-            throw IllegalStateException("baksmali 反汇编失败: $dexEntryName")
+        // Build the modified classes: className(dots) -> ClassDef
+        val modifiedClasses = HashMap<String, ClassDef>()
+        val targetDescriptors = mods.map {
+            "L${it.className.replace('.', '/')};"
+        }.toHashSet()
+
+        for (classDef in source.classes) {
+            val desc = classDef.type
+            val dotName = desc.substring(1, desc.length - 1).replace('/', '.')
+            if (targetDescriptors.contains(desc)) {
+                val classMods = mods.filter { it.className == dotName }
+                if (classMods.isNotEmpty()) {
+                    val rebuilt = rebuildClass(classDef, classMods, workDir, safeName)
+                    modifiedClasses[dotName] = rebuilt
+                }
+            }
         }
 
-        // Apply each modification.
-        for (mod in mods) {
-            applyOne(smaliDir, mod)
+        // Rebuild the pool: unmodified classes byte-copied, modified ones interned.
+        for (classDef in source.classes) {
+            val desc = classDef.type
+            val dotName = desc.substring(1, desc.length - 1).replace('/', '.')
+            val replacement = modifiedClasses[dotName]
+            if (replacement != null) {
+                pool.internClass(replacement)
+            } else {
+                pool.internClass(classDef)
+            }
         }
 
-        // Reassemble smali back to dex.
         val outDex = File(workDir, "${safeName}.out")
-        val smaliOpts = SmaliOptions().apply {
-            outputDexFile = outDex.absolutePath
-            apiLevel = 15
-        }
-        val assembleOk = Smali.assemble(smaliOpts, listOf(smaliDir.absolutePath))
-        if (!assembleOk || !outDex.exists()) {
-            throw IllegalStateException("smali 汇编失败: $dexEntryName")
-        }
+        pool.writeTo(FileDataStore(outDex))
         return outDex
     }
 
-    private fun applyOne(smaliDir: File, mod: SmaliModification) {
-        val classSmali = findClassSmaliFile(smaliDir, mod.className)
-            ?: throw IllegalStateException("未找到类 ${mod.className} 的 smali 文件")
+    /**
+     * Rebuild a single class with its target method(s) replaced.
+     */
+    private fun rebuildClass(
+        classDef: ClassDef,
+        mods: List<SmaliModification>,
+        workDir: File,
+        tag: String,
+    ): ClassDef {
+        // 1. Disassemble ONLY this class to smali text.
+        val smaliText = disassembleSingleClass(classDef)
 
-        val content = classSmali.readText()
+        // 2. Apply method replacements.
+        var modified = smaliText
+        for (mod in mods) {
+            val startLine = methodDescriptor(modified, mod.methodName)
+                ?: throw IllegalStateException("类 ${mod.className} 中未找到方法 ${mod.methodName}")
+            modified = replaceMethodBlock(modified, startLine, mod.modifiedSmali)
+        }
 
-        // Find the method block for mod.methodName and replace it.
-        val descriptor = methodDescriptor(content, mod.methodName)
-            ?: throw IllegalStateException("类 ${mod.className} 中未找到方法 ${mod.methodName}")
+        // 3. Write the single-class smali to a temp dir and reassemble.
+        val clsSmaliDir = File(workDir, "${tag}_cls_${System.nanoTime()}")
+        clsSmaliDir.mkdirs()
+        val file = smaliFileForClass(clsSmaliDir, classDef.type)
+        file.parentFile?.mkdirs()
+        file.writeText(modified)
 
-        // Replace the block starting at this method's `.method` line through its
-        // matching `.end method`.
-        val newContent = replaceMethodBlock(content, descriptor, mod.modifiedSmali)
-        classSmali.writeText(newContent)
+        val tmpDex = File(workDir, "${tag}_cls_${System.nanoTime()}.dex")
+        val smaliOpts = SmaliOptions().apply {
+            outputDexFile = tmpDex.absolutePath
+            apiLevel = 15
+        }
+        val ok = Smali.assemble(smaliOpts, listOf(clsSmaliDir.absolutePath))
+        if (!ok || !tmpDex.exists()) {
+            throw IllegalStateException("类 ${classDef.type} 重新汇编失败")
+        }
+
+        // 4. Load the tiny dex and return the single rebuilt class.
+        val rebuiltDex = DexFileFactory.loadDexFile(tmpDex, Opcodes.getDefault())
+        return rebuiltDex.classes.firstOrNull()
+            ?: throw IllegalStateException("重新汇编后未得到类 ${classDef.type}")
     }
 
-    /** Locate the smali file for a fully qualified class name. */
-    private fun findClassSmaliFile(smaliDir: File, className: String): File? {
-        // Class name may contain '$' for inner classes.
-        val parts = className.split('.')
-        val fileName = parts.last() + ".smali"
-        val dirs = parts.dropLast(1)
+    /** Disassemble a single class to a smali text string. */
+    private fun disassembleSingleClass(classDef: ClassDef): String {
+        val options = BaksmaliOptions()
+        val writer = StringWriter()
+        val baksmaliWriter = BaksmaliWriter(writer)
+        val classDefinition = ClassDefinition(options, classDef)
+        classDefinition.writeTo(baksmaliWriter)
+        baksmaliWriter.flush()
+        return writer.toString()
+    }
 
-        // Direct path: smali/package/path/Name.smali
-        val direct = File(File(smaliDir, dirs.joinToString("/")), fileName)
-        if (direct.exists()) return direct
-
-        // Fallback 1: recursive search by filename (handles package mismatches).
-        val byName = smaliDir.walkTopDown().firstOrNull { it.isFile && it.name == fileName }
-        if (byName != null) return byName
-
-        // Fallback 2: search for a smali file whose first line declares this
-        // class descriptor (e.g. `.class public Lcom/duapps/recorder/mb0;`).
-        // This is the most reliable match even when the filename is obfuscated
-        // or differs from the class name.
-        val descriptor = "L${className.replace('.', '/')};"
-        return smaliDir.walkTopDown().firstOrNull { file ->
-            if (!file.isFile || !file.name.endsWith(".smali")) return@firstOrNull false
-            try {
-                val head = file.useLines { lines ->
-                    lines.take(50).joinToString("\n")
-                }
-                head.contains(descriptor)
-            } catch (_: Exception) {
-                false
-            }
-        }
+    private fun smaliFileForClass(smaliDir: File, descriptor: String): File {
+        val rel = descriptor.substring(1, descriptor.length - 1)
+        val path = rel.replace('/', '/')
+        return File(smaliDir, "$path.smali")
     }
 
     /** Find the exact `.method ... name(...)...` line for the given method. */
@@ -260,7 +291,6 @@ object SmaliPatcher {
     }
 
     private fun methodRegexName(methodLine: String): String {
-        // .method public abstract isVip()Z  -> isVip
         val openParen = methodLine.indexOf('(')
         if (openParen <= 0) return ""
         val before = methodLine.substring(0, openParen).trim()
@@ -276,7 +306,6 @@ object SmaliPatcher {
         while (i < lines.size) {
             val line = lines[i]
             if (!replaced && line.trim() == methodStartLine.trim()) {
-                // Consume until the matching .end method.
                 var depth = 0
                 while (i < lines.size) {
                     val l = lines[i]
@@ -290,7 +319,6 @@ object SmaliPatcher {
                     }
                     i++
                 }
-                // Insert the replacement smali (normalize line endings).
                 sb.append(newSmali.trim()).append("\n")
                 replaced = true
             } else {
