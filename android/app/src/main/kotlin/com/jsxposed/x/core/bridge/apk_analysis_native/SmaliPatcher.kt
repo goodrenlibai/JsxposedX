@@ -12,7 +12,9 @@ import org.jf.smali.Smali
 import org.jf.smali.SmaliOptions
 import java.io.File
 import java.io.StringWriter
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 
 /**
  * A single smali modification request derived from the AI's plan.
@@ -81,47 +83,55 @@ object SmaliPatcher {
                 remaining.getOrPut(mod.className) { mutableListOf() }.add(mod)
             }
 
-            val outEntries = ArrayList<ZipSourceEntry>()
-
             ZipFile(src).use { zin ->
-                val entries = zin.entries()
-                while (entries.hasMoreElements()) {
-                    val entry = entries.nextElement()
-                    val name = entry.name
-                    val isDex = name.endsWith(".dex") && !entry.isDirectory
+                ZipOutputStream(output.outputStream().buffered()).use { zout ->
+                    val entries = zin.entries()
+                    while (entries.hasMoreElements()) {
+                        val entry = entries.nextElement()
+                        val name = entry.name
+                        val isDex = name.endsWith(".dex") && !entry.isDirectory
 
-                    if (isDex && remaining.isNotEmpty()) {
-                        // Parse this dex once and find which target classes it holds.
-                        val found = try {
-                            val dexFile = File.createTempFile("dex_", ".dex")
-                            try {
-                                zin.getInputStream(entry).use { it.copyTo(dexFile.outputStream()) }
-                                val dex = DexFileFactory.loadDexFile(dexFile, Opcodes.getDefault())
-                                val descSet = dex.classes.map { it.type }.toHashSet()
-                                remaining.keys.filter { cls ->
-                                    descSet.contains("L${cls.replace('.', '/')};")
-                                }.toList()
-                            } finally {
-                                dexFile.delete()
+                        if (isDex && remaining.isNotEmpty()) {
+                            // Parse this dex once and find which target classes it holds.
+                            val found = try {
+                                val dexFile = File.createTempFile("dex_", ".dex")
+                                try {
+                                    zin.getInputStream(entry).use { it.copyTo(dexFile.outputStream()) }
+                                    val dex = DexFileFactory.loadDexFile(dexFile, Opcodes.getDefault())
+                                    val descSet = dex.classes.map { it.type }.toHashSet()
+                                    remaining.keys.filter { cls ->
+                                        descSet.contains("L${cls.replace('.', '/')};")
+                                    }.toList()
+                                } finally {
+                                    dexFile.delete()
+                                }
+                            } catch (_: Exception) {
+                                emptyList()
                             }
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
 
-                        if (found.isEmpty()) {
-                            // No target class here — copy raw bytes.
-                            outEntries.add(ZipSourceEntry(name, readBytes(zin.getInputStream(entry))))
+                            if (found.isEmpty()) {
+                                // No target class here — copy raw bytes.
+                                zout.putNextEntry(ZipEntry(name))
+                                zin.getInputStream(entry).use { it.copyTo(zout) }
+                                zout.closeEntry()
+                            } else {
+                                // Re-read the entry and patch it (only the found classes).
+                                val modsForDex = found.flatMap { remaining[it] ?: emptyList() }
+                                val patched = patchDexEntry(
+                                    zin.getInputStream(entry), modsForDex, workDir, name,
+                                )
+                                for (cls in found) remaining.remove(cls)
+                                zout.putNextEntry(ZipEntry(name))
+                                patched.inputStream().use { it.copyTo(zout) }
+                                zout.closeEntry()
+                            }
                         } else {
-                            // Re-read the entry and patch it (only the found classes).
-                            val modsForDex = found.flatMap { remaining[it] ?: emptyList() }
-                            val patched = patchDexEntry(
-                                zin.getInputStream(entry), modsForDex, workDir, name,
-                            )
-                            for (cls in found) remaining.remove(cls)
-                            outEntries.add(ZipSourceEntry(name, readBytes(patched.inputStream())))
+                            zout.putNextEntry(ZipEntry(name))
+                            if (!entry.isDirectory) {
+                                zin.getInputStream(entry).use { it.copyTo(zout) }
+                            }
+                            zout.closeEntry()
                         }
-                    } else {
-                        outEntries.add(ZipSourceEntry(name, readBytes(zin.getInputStream(entry))))
                     }
                 }
             }
@@ -131,10 +141,6 @@ object SmaliPatcher {
                 val missing = remaining.keys.joinToString(", ")
                 return SmaliPatchResult(apkPath, false, "修改失败: 以下类未在任何 dex 中找到: $missing")
             }
-
-            // Write the APK with 4-byte alignment and uncompressed resources.arsc
-            // (required for install on Android 11+ / targetSdk 30).
-            AlignedZip.write(output, outEntries)
 
             val msg = if (usedFallbackDir) {
                 "修改成功（原目录不可写，已保存到: ${output.absolutePath}）"
@@ -260,12 +266,18 @@ object SmaliPatcher {
         return File(smaliDir, "$path.smali")
     }
 
-    /** Find the exact `.method ... name(...)...` line for the given method. */
-    private fun methodDescriptor(content: String, methodName: String): String? {
+    /**
+     * Find the exact `.method ... name(params)return ...` line that matches the
+     * given full signature (e.g. "p(Landroid/content/Context;)Z").
+     * Matching by the FULL signature (name + parameter types + return type)
+     * prevents accidentally replacing the WRONG overload, which would produce a
+     * VerifyError / crash at runtime.
+     */
+    private fun methodDescriptor(content: String, signature: String): String? {
         for (line in content.lineSequence()) {
             val trimmed = line.trim()
             if (trimmed.startsWith(".method ")) {
-                if (methodRegexName(trimmed) == methodName) {
+                if (signatureMatches(trimmed, signature)) {
                     return trimmed
                 }
             }
@@ -273,12 +285,30 @@ object SmaliPatcher {
         return null
     }
 
-    private fun methodRegexName(methodLine: String): String {
-        val openParen = methodLine.indexOf('(')
-        if (openParen <= 0) return ""
-        val before = methodLine.substring(0, openParen).trim()
+    /** Compare a `.method` line's signature against the target signature. */
+    private fun signatureMatches(methodLine: String, targetSignature: String): Boolean {
+        // Extract "name(params)return" from the .method line.
+        val open = methodLine.indexOf('(')
+        val close = methodLine.indexOf(')', open)
+        if (open <= 0 || close <= open) return false
+        val before = methodLine.substring(0, open).trim()
         val space = before.lastIndexOf(' ')
-        return if (space >= 0) before.substring(space + 1) else before
+        val name = if (space >= 0) before.substring(space + 1) else before
+        val params = methodLine.substring(open + 1, close)
+        val ret = methodLine.substring(close + 1).trim()
+
+        // targetSignature like "p(Landroid/content/Context;)Z"
+        val targetOpen = targetSignature.indexOf('(')
+        val targetClose = targetSignature.indexOf(')', targetOpen)
+        if (targetOpen <= 0 || targetClose <= targetOpen) {
+            // Fallback: match by name only.
+            return name == targetSignature
+        }
+        val targetName = targetSignature.substring(0, targetOpen)
+        val targetParams = targetSignature.substring(targetOpen + 1, targetClose)
+        val targetRet = targetSignature.substring(targetClose + 1).trim()
+
+        return name == targetName && params == targetParams && ret == targetRet
     }
 
     private fun replaceMethodBlock(content: String, methodStartLine: String, newSmali: String): String {

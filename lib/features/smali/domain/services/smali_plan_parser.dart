@@ -119,7 +119,7 @@ class SmaliPlanParser {
       ).firstMatch(t);
       if (classMatch != null) className = classMatch.group(1);
       final methodMatch = RegExp(
-        r'method\s*[:：]\s*([\w$]+)',
+        r'method\s*[:：]\s*([\w$]+(?:\([^)]*\)[A-Za-z0-9/\[\];.]*)?)',
         caseSensitive: false,
       ).firstMatch(t);
       if (methodMatch != null) methodName = methodMatch.group(1);
@@ -187,8 +187,13 @@ class SmaliPlanParser {
   }
 
   static String? _extractMethod(String body) {
-    // method: A()Z  → A
-    final re = RegExp(r'method\s*[:：]\s*([\w$]+)', caseSensitive: false);
+    // Capture the full signature, e.g. `p(Landroid/content/Context;)Z`,
+    // so overloaded methods are matched exactly (prevents wrong-overload
+    // replacement which would produce a VerifyError / crash).
+    final re = RegExp(
+      r'method\s*[:：]\s*([\w$]+(?:\([^)]*\)[A-Za-z0-9/\[\];.]*)?)',
+      caseSensitive: false,
+    );
     final m = re.firstMatch(body);
     return m?.group(1);
   }

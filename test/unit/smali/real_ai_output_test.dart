@@ -98,17 +98,17 @@ void main() {
       'com.duapps.recorder.lb0',
       'com.duapps.recorder.mb0',
     ]));
-    expect(methods, containsAll(['A', 'x', 'p']));
+    expect(methods, containsAll(['A()Z', 'x()J', 'p(Landroid/content/Context;)Z']));
 
     // Each modification's smali should be the "after" (modified) version.
-    final a = r.modifications.firstWhere((m) => m.methodName == 'A');
+    final a = r.modifications.firstWhere((m) => m.methodName == 'A()Z');
     expect(a.modifiedSmali, contains('const/4 v0, 0x1'));
     expect(a.modifiedSmali, isNot(contains('k_pd')));
 
-    final x = r.modifications.firstWhere((m) => m.methodName == 'x');
+    final x = r.modifications.firstWhere((m) => m.methodName == 'x()J');
     expect(x.modifiedSmali, contains('const-wide/16 v0, -0x1'));
 
-    final p = r.modifications.firstWhere((m) => m.methodName == 'p');
+    final p = r.modifications.firstWhere((m) => m.methodName == 'p(Landroid/content/Context;)Z');
     expect(p.modifiedSmali, contains('const/4 p0, 0x1'));
   });
 }
