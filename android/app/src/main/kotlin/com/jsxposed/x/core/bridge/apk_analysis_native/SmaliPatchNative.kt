@@ -92,17 +92,22 @@ object SmaliPatchNative {
     private fun workDir(): File = File(appContext.cacheDir, "smali_patch").apply { mkdirs() }
 
     /**
-     * Move/copy the generated APK to a public, user-accessible folder:
-     *  - If MANAGE_EXTERNAL_STORAGE is granted: write to
-     *    /storage/emulated/0/Download/JsxposedX/modified_<name>.apk
-     *  - Otherwise: fall back to the app's external files dir
-     *    /storage/emulated/0/Android/data/<pkg>/files/... (still on public
-     *    storage but app-scoped).
+     * Save the generated APK to a **public, user-accessible** location.
+     *
+     * Strategy (from most to least accessible for an ordinary user):
+     *   1. If MANAGE_EXTERNAL_STORAGE is granted → write directly to
+     *      /storage/emulated/0/Download/JsxposedX/<name>.
+     *   2. Otherwise (Android 10+) → insert into MediaStore Downloads, which
+     *      makes the file appear in the Downloads app / file manager WITHOUT
+     *      requiring any storage permission.
+     *   3. Last resort → app external files dir (Android/data/<pkg>/files).
      */
     private fun moveToPublicLocation(srcPath: String): String {
         val src = File(srcPath)
         if (!src.exists()) return srcPath
+        val fileName = src.name
 
+        // 1. Public Downloads via direct file write (needs MANAGE_EXTERNAL_STORAGE).
         val publicDir = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
                 Environment.isExternalStorageManager()
@@ -113,17 +118,57 @@ object SmaliPatchNative {
                 ).also { it.mkdirs() }
             } else null
         } catch (_: Exception) { null }
-
-        val destDir = publicDir ?: appContext.getExternalFilesDir(null) ?: appContext.cacheDir
-        val dest = File(destDir, src.name)
-
-        return try {
-            src.copyTo(dest, overwrite = true)
-            src.delete()
-            dest.absolutePath
-        } catch (e: Exception) {
-            srcPath
+        if (publicDir != null) {
+            val dest = File(publicDir, fileName)
+            return try {
+                src.copyTo(dest, overwrite = true)
+                src.delete()
+                dest.absolutePath
+            } catch (_: Exception) {
+                srcPath
+            }
         }
+
+        // 2. MediaStore Downloads (no permission needed on Android 10+).
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val resolver = appContext.contentResolver
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/vnd.android.package-archive")
+                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download/JsxposedX")
+                    put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val collection = android.provider.MediaStore.Downloads.getContentUri(
+                    android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY
+                )
+                val uri = resolver.insert(collection, values)
+                if (uri != null) {
+                    src.inputStream().use { input ->
+                        resolver.openOutputStream(uri)?.use { output -> input.copyTo(output) }
+                    }
+                    values.clear()
+                    values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                    resolver.update(uri, values, null, null)
+                    src.delete()
+                    return "Download/JsxposedX/$fileName"
+                }
+            }
+        } catch (_: Exception) { }
+
+        // 3. App external files dir.
+        val externalDir = appContext.getExternalFilesDir(null)
+        if (externalDir != null) {
+            val dest = File(externalDir, fileName)
+            return try {
+                src.copyTo(dest, overwrite = true)
+                src.delete()
+                dest.absolutePath
+            } catch (_: Exception) {
+                srcPath
+            }
+        }
+        return srcPath
     }
 
     /** Fire an ACTION_SEND chooser so the user can save/install the APK anywhere. */
