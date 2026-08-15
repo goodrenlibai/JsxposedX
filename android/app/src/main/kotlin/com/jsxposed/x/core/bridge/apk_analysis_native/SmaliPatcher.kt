@@ -141,7 +141,7 @@ object SmaliPatcher {
             outputDexFile = outDex.absolutePath
             apiLevel = 15
         }
-        val assembleOk = Smali.assemble(smaliOpts, arrayOf(smaliDir.absolutePath))
+        val assembleOk = Smali.assemble(smaliOpts, listOf(smaliDir.absolutePath))
         if (!assembleOk || !outDex.exists()) {
             throw IllegalStateException("smali 汇编失败: $dexEntryName")
         }
