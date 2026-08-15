@@ -7,6 +7,7 @@ enum ManualReverseUiStep {
   awaitingAi,
   executing,
   resultReady,
+  done,
 }
 
 /// A compact progress banner that always shows which step of the manual loop
@@ -47,7 +48,6 @@ class ManualStepBanner extends StatelessWidget {
     final primary = Theme.of(context).colorScheme.primary;
     final teal = Colors.teal;
     final orange = Colors.orange;
-    final red = Theme.of(context).colorScheme.error;
     return switch (step) {
       ManualReverseUiStep.initializing => (
         isZh ? '正在初始化逆向会话...' : 'Initializing reverse session...',
@@ -75,9 +75,14 @@ class ManualStepBanner extends StatelessWidget {
         teal,
       ),
       ManualReverseUiStep.resultReady => (
-        isZh ? '步骤 4：复制结果发回 AI 继续（或已完成）' : 'Step 4: copy results back to the AI (or done)',
-        Icons.check_circle,
+        isZh ? '步骤 4：复制结果发回 AI 继续' : 'Step 4: copy results back to the AI to continue',
+        Icons.sync,
         teal,
+      ),
+      ManualReverseUiStep.done => (
+        isZh ? 'AI 分析完成' : 'AI analysis complete',
+        Icons.check_circle,
+        Colors.green,
       ),
     };
   }

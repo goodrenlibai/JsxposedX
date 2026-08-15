@@ -13,7 +13,7 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-enum _UiStep { initializing, input, promptReady, awaitingAi, executing, resultReady }
+enum _UiStep { initializing, input, promptReady, awaitingAi, executing, resultReady, done }
 
 /// Manual (semi-automatic) send mode for APK reverse.
 ///
@@ -86,6 +86,9 @@ class ManualAiReversePage extends HookConsumerWidget {
     final currentPrompt = useState<String?>(null);
     final currentResult = useState<String?>(null);
     final roundCount = useState(0);
+    // AI completion + smali plan tracking (from the fixed output protocol).
+    final aiComplete = useState<bool>(false);
+    final smaliMods = useState<List<SmaliModificationRequest>>([]);
 
     // Auto-scroll to the top of the active panel whenever the step changes so
     // the current action is always in view (no manual scrolling up/down).
@@ -114,6 +117,8 @@ class ManualAiReversePage extends HookConsumerWidget {
       currentPrompt.value = prompt;
       currentResult.value = null;
       aiResponseInput.clear();
+      aiComplete.value = false;
+      smaliMods.value = const [];
       step.value = _UiStep.promptReady;
     }
 
@@ -133,10 +138,22 @@ class ManualAiReversePage extends HookConsumerWidget {
         currentResult.value = result;
         roundCount.value =
             ctrl.rounds.length + (ctrl.copyableResult != null ? 1 : 0);
-        // Copy is only enabled again once the run is fully finished.
-        step.value = ctrl.copyableResult != null
-            ? _UiStep.resultReady
-            : _UiStep.promptReady;
+
+        // Parse the AI's raw answer for the fixed completion protocol.
+        final planResult = SmaliPlanParser.parse(response);
+        aiComplete.value = planResult.isAnalysisComplete;
+        smaliMods.value = planResult.modifications;
+
+        if (ctrl.copyableResult != null) {
+          // Tools were executed → user should copy the result back to the AI
+          // to continue. Analysis is NOT complete yet.
+          aiComplete.value = false;
+          smaliMods.value = const [];
+          step.value = _UiStep.resultReady;
+        } else {
+          // No tool calls → the AI concluded its analysis.
+          step.value = _UiStep.done;
+        }
       } catch (error) {
         ToastMessage.show('${isZh ? '执行失败' : 'Failed'}: $error');
         step.value = _UiStep.awaitingAi;
@@ -154,6 +171,8 @@ class ManualAiReversePage extends HookConsumerWidget {
       requestInput.clear();
       aiResponseInput.clear();
       roundCount.value = 0;
+      aiComplete.value = false;
+      smaliMods.value = const [];
       step.value = _UiStep.input;
     }
 
@@ -164,6 +183,7 @@ class ManualAiReversePage extends HookConsumerWidget {
         case _UiStep.awaitingAi:
           return currentPrompt.value;
         case _UiStep.resultReady:
+        case _UiStep.done:
           return currentResult.value;
         default:
           return null;
@@ -179,13 +199,15 @@ class ManualAiReversePage extends HookConsumerWidget {
       ToastMessage.show(isZh ? '已复制' : 'Copied');
     }
 
-    // ── 一键修改：根据当前 AI 输出的 smali 方案，选择 APK 并应用修改 ──
+    // ── 一键修改：仅当 AI 已完成任务且解析出 smali 方案时才启用 ──
     Future<void> oneClickModify() async {
-      final result = currentResult.value ?? currentPrompt.value ?? '';
-      final modifications = SmaliPlanParser.parse(result);
-      if (modifications.isEmpty) {
+      // Use the smali plans parsed from the AI answer (set when AI completed).
+      final modifications = smaliMods.value;
+      if (!aiComplete.value || modifications.isEmpty) {
         ToastMessage.show(
-          isZh ? '未从 AI 输出中解析到 smali 修改方案' : 'No smali plan parsed from AI output',
+          isZh
+              ? 'AI 尚未完成分析或未提供 smali 修改方案'
+              : 'AI has not completed analysis or no smali plan available',
         );
         return;
       }
@@ -256,6 +278,8 @@ class ManualAiReversePage extends HookConsumerWidget {
                           currentResult: currentResult.value,
                           onConfirm: confirmAiResponse,
                           onOneClickModify: oneClickModify,
+                          onRestart: restart,
+                          aiComplete: aiComplete.value,
                         ),
                       ],
                     ),
@@ -287,6 +311,8 @@ class ManualAiReversePage extends HookConsumerWidget {
     required String? currentResult,
     required VoidCallback onConfirm,
     VoidCallback? onOneClickModify,
+    VoidCallback? onRestart,
+    bool aiComplete = false,
   }) {
     switch (step) {
       case _UiStep.input:
@@ -391,17 +417,6 @@ class ManualAiReversePage extends HookConsumerWidget {
               maxHeight: 200,
               selectable: true,
             ),
-            if (onOneClickModify != null) ...[
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: onOneClickModify,
-                  icon: const Icon(Icons.auto_fix_high, size: 18),
-                  label: Text(isZh ? '一键修改' : 'One-click modify'),
-                ),
-              ),
-            ],
             const SizedBox(height: 16),
             _SectionTitle(
               isZh
@@ -425,6 +440,43 @@ class ManualAiReversePage extends HookConsumerWidget {
                 onPressed: onConfirm,
                 icon: const Icon(Icons.play_arrow, size: 18),
                 label: Text(isZh ? '继续分析' : 'Continue'),
+              ),
+            ),
+          ],
+        );
+
+      case _UiStep.done:
+        // AI 已完成分析。仅当解析出 smali 方案时才显示「一键修改」按钮。
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SectionTitle(
+              isZh ? 'AI 分析完成' : 'Analysis complete',
+            ),
+            const SizedBox(height: 8),
+            _ReadonlyBox(
+              text: currentResult ?? '',
+              maxHeight: 220,
+              selectable: true,
+            ),
+            if (onOneClickModify != null && aiComplete) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: onOneClickModify,
+                  icon: const Icon(Icons.auto_fix_high, size: 18),
+                  label: Text(isZh ? '一键修改' : 'One-click modify'),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onRestart,
+                icon: const Icon(Icons.replay, size: 18),
+                label: Text(isZh ? '重新开始' : 'Restart'),
               ),
             ),
           ],
@@ -478,6 +530,12 @@ class ManualAiReversePage extends HookConsumerWidget {
         (currentResult?.isNotEmpty ?? false),
         onCopy,
       ),
+      _UiStep.done => (
+        isZh ? '复制结果' : 'Copy result',
+        Icons.copy,
+        (currentResult?.isNotEmpty ?? false),
+        onCopy,
+      ),
       _UiStep.initializing => (
         '',
         Icons.hourglass_top,
@@ -518,6 +576,7 @@ class ManualAiReversePage extends HookConsumerWidget {
       _UiStep.awaitingAi => ManualReverseUiStep.awaitingAi,
       _UiStep.executing => ManualReverseUiStep.executing,
       _UiStep.resultReady => ManualReverseUiStep.resultReady,
+      _UiStep.done => ManualReverseUiStep.done,
     };
   }
 }

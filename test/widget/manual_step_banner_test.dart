@@ -44,4 +44,9 @@ void main() {
     await pump(tester, ManualReverseUiStep.executing, true);
     expect(find.textContaining('执行工具'), findsOneWidget);
   });
+
+  testWidgets('renders done step label', (tester) async {
+    await pump(tester, ManualReverseUiStep.done, true);
+    expect(find.textContaining('分析完成'), findsOneWidget);
+  });
 }
