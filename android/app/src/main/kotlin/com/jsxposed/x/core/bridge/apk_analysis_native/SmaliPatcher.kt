@@ -46,20 +46,12 @@ data class SmaliPatchResult(
  * APK (unsigned — no re-signing is performed).
  *
  * PERFORMANCE (fast, similar to MT Manager's "Dex 编辑器++"):
- * Instead of disassembling + reassembling the ENTIRE dex to/from smali text
- * (the naive approach, which is very slow), we only text-round-trip the
- * *modified class(es)*:
- *
- *   1. Load the source dex via dexlib2 ([DexFileFactory.loadDexFile]).
- *   2. For each target class: disassemble ONLY that class to smali text, apply
- *      the method replacement, then reassemble ONLY that class (via a tiny
- *      smali project) to obtain a modified [ClassDef].
- *   3. Build a [DexPool]: byte-copy every UNMODIFIED class directly
- *      ([DexPool.internClass]) and intern the modified class(es).
- *   4. Write the pool to the output dex.
- *
- * This keeps the bulk of the dex as a fast binary copy, which is why it's much
- * closer to MT Manager's speed.
+ * - Only the *modified classes* are round-tripped through smali text
+ *   (disassemble single class → replace method → reassemble single class).
+ * - Every other class is byte-copied directly via [DexPool.internClass].
+ * - The whole APK is rewritten in a SINGLE pass over the zip entries, and each
+ *   dex is parsed at most once (target detection and patching are combined),
+ *   avoiding the extra full re-read of every dex.
  */
 object SmaliPatcher {
 
@@ -84,30 +76,55 @@ object SmaliPatcher {
         val usedFallbackDir = srcParent == null
 
         return try {
-            // 1. Determine which dex contains each target class.
-            val dexForClass = detectDexContainingClass(apkPath, modifications)
-
-            // 2. Group modifications by the resolved dex entry.
-            val byDex = HashMap<String, MutableList<SmaliModification>>()
+            // Single pass: iterate dex entries once. For each dex, parse it
+            // once, and if it contains any target class, patch it inline.
+            val remaining = HashMap<String, MutableList<SmaliModification>>()
             for (mod in modifications) {
-                val dex = dexForClass[mod.className] ?: mod.dexPath
-                byDex.getOrPut(dex) { mutableListOf() }.add(mod)
+                remaining.getOrPut(mod.className) { mutableListOf() }.add(mod)
             }
 
-            // 3. Rewrite the APK, patching the dex files that have changes.
             ZipFile(src).use { zin ->
                 ZipOutputStream(output.outputStream().buffered()).use { zout ->
                     val entries = zin.entries()
                     while (entries.hasMoreElements()) {
                         val entry = entries.nextElement()
                         val name = entry.name
-                        if (name.endsWith(".dex") && byDex.containsKey(name)) {
-                            val patched = patchDexEntry(
-                                zin.getInputStream(entry), byDex[name]!!, workDir, name,
-                            )
-                            zout.putNextEntry(ZipEntry(name))
-                            patched.inputStream().use { it.copyTo(zout) }
-                            zout.closeEntry()
+                        val isDex = name.endsWith(".dex") && !entry.isDirectory
+
+                        if (isDex && remaining.isNotEmpty()) {
+                            // Parse this dex once and find which target classes it holds.
+                            val found = try {
+                                val dexFile = File.createTempFile("dex_", ".dex")
+                                try {
+                                    zin.getInputStream(entry).use { it.copyTo(dexFile.outputStream()) }
+                                    val dex = DexFileFactory.loadDexFile(dexFile, Opcodes.getDefault())
+                                    val descSet = dex.classes.map { it.type }.toHashSet()
+                                    remaining.keys.filter { cls ->
+                                        descSet.contains("L${cls.replace('.', '/')};")
+                                    }.toList()
+                                } finally {
+                                    dexFile.delete()
+                                }
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+
+                            if (found.isEmpty()) {
+                                // No target class here — copy raw bytes.
+                                zout.putNextEntry(ZipEntry(name))
+                                zin.getInputStream(entry).use { it.copyTo(zout) }
+                                zout.closeEntry()
+                            } else {
+                                // Re-read the entry and patch it (only the found classes).
+                                val modsForDex = found.flatMap { remaining[it] ?: emptyList() }
+                                val patched = patchDexEntry(
+                                    zin.getInputStream(entry), modsForDex, workDir, name,
+                                )
+                                for (cls in found) remaining.remove(cls)
+                                zout.putNextEntry(ZipEntry(name))
+                                patched.inputStream().use { it.copyTo(zout) }
+                                zout.closeEntry()
+                            }
                         } else {
                             zout.putNextEntry(ZipEntry(name))
                             if (!entry.isDirectory) {
@@ -118,6 +135,13 @@ object SmaliPatcher {
                     }
                 }
             }
+
+            // Any class we never located in any dex → report it.
+            if (remaining.isNotEmpty()) {
+                val missing = remaining.keys.joinToString(", ")
+                return SmaliPatchResult(apkPath, false, "修改失败: 以下类未在任何 dex 中找到: $missing")
+            }
+
             val msg = if (usedFallbackDir) {
                 "修改成功（原目录不可写，已保存到: ${output.absolutePath}）"
             } else {
@@ -127,41 +151,6 @@ object SmaliPatcher {
         } catch (e: Exception) {
             SmaliPatchResult(apkPath, false, "修改失败: ${e.message}")
         }
-    }
-
-    /** Determine which dex entry contains each target class. */
-    private fun detectDexContainingClass(
-        apkPath: String,
-        modifications: List<SmaliModification>,
-    ): Map<String, String> {
-        val result = HashMap<String, String>()
-        val descriptorByClass = modifications.associate {
-            it.className to "L${it.className.replace('.', '/')};"
-        }
-        ZipFile(apkPath).use { zip ->
-            val dexEntries = zip.entries().asSequence()
-                .filter { it.name.endsWith(".dex") && !it.isDirectory }
-                .toList()
-            for (entry in dexEntries) {
-                val dexFile = File.createTempFile("probe_", ".dex")
-                try {
-                    zip.getInputStream(entry).use { it.copyTo(dexFile.outputStream()) }
-                    val dex = DexFileFactory.loadDexFile(dexFile, Opcodes.getDefault())
-                    val present = dex.classes.map { it.type }.toHashSet()
-                    for ((cls, desc) in descriptorByClass) {
-                        if (present.contains(desc) && !result.containsKey(cls)) {
-                            result[cls] = entry.name
-                        }
-                    }
-                } catch (_: Exception) {
-                    // Ignore dex files that can't be parsed.
-                } finally {
-                    dexFile.delete()
-                }
-                if (result.size == descriptorByClass.size) break
-            }
-        }
-        return result
     }
 
     /**

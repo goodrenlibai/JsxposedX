@@ -71,4 +71,13 @@ class SmaliPatchService {
       message: (result['message'] as String?) ?? '',
     );
   }
+
+  /// Fire a share/save chooser so the user can save/install the generated APK
+  /// to any accessible location.
+  Future<bool> shareApk({required String apkPath}) async {
+    final ok = await _channel.invokeMethod<bool>('shareApk', {
+      'apkPath': apkPath,
+    });
+    return ok ?? false;
+  }
 }

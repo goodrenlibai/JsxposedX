@@ -138,6 +138,7 @@ afterEvaluate {
 
 dependencies {
     compileOnly(files("src/lib/XposedBridgeAPI-89.jar"))
+    implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.google.code.gson:gson:2.13.2")
     implementation("com.github.suzhelan:XpHelper:2.7") {

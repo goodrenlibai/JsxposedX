@@ -218,31 +218,45 @@ class ManualAiReversePage extends HookConsumerWidget {
               children: [
                 Text(
                   isZh
-                      ? '新安装包（未签名）已生成，保存位置如下：'
-                      : 'New APK (unsigned) saved at:',
+                      ? '新安装包（未签名）已生成。建议点击「分享/保存」把它保存到你能访问的位置（例如下载目录）。'
+                      : 'New APK (unsigned) generated. Tap "Share/Save" to save it to an accessible location (e.g. Downloads).',
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 10),
+                Text(
+                  isZh ? '生成位置：' : 'Generated at:',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 4),
                 SelectableText(
                   outputPath,
                   style: const TextStyle(fontSize: 13, color: Colors.blueGrey),
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  message,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
+                if (message.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    message,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 Text(
                   isZh
-                      ? '新包默认与原包在同一目录。安装前请先签名。'
-                      : 'It is saved next to the original APK by default. Sign it before installing.',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ? '若上面的路径在你的手机里无法访问（例如在应用私有缓存目录），请使用「分享/保存」导出到下载目录或其它可访问位置。安装前请先签名。'
+                      : 'If the path above is not accessible on your device (e.g. inside the app cache), use "Share/Save" to export to Downloads or another location. Sign before installing.',
+                  style: const TextStyle(fontSize: 12, color: Colors.orange),
                 ),
               ],
             ),
           ),
           actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                await SmaliPatchService().shareApk(apkPath: outputPath);
+              },
+              child: Text(isZh ? '分享/保存' : 'Share/Save'),
+            ),
             TextButton(
               onPressed: () async {
                 Navigator.of(ctx).pop();
