@@ -1,9 +1,9 @@
-name: Build
+name: Android Build & Release
 
 on:
   push:
     branches:
-      - master
+      - '**'
     tags:
       - 'V*'
   pull_request:
@@ -29,6 +29,13 @@ on:
           - debug
           - release
           - both
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   FLUTTER_VERSION: '3.41.9'
@@ -152,7 +159,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ matrix.flavor }}-${{ matrix.build_type }}
+          name: android-apk-${{ matrix.flavor }}-${{ matrix.build_type }}
           path: build/app/outputs/flutter-apk/app-${{ matrix.flavor }}-${{ matrix.build_type }}.apk
           if-no-files-found: error
           retention-days: 30
@@ -164,3 +171,63 @@ jobs:
           if [ -f android/gradlew ]; then
             (cd android && bash ./gradlew --stop) || true
           fi
+
+  release:
+    name: Publish APK to Releases
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download APK artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: android-apk-*
+          path: apks
+          merge-multiple: true
+
+      - name: Read version from pubspec.yaml
+        id: ver
+        shell: bash
+        run: |
+          VERSION=$(grep -E '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION (tag: V$VERSION)"
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          mkdir -p dist
+          found=0
+          for f in apks/*.apk; do
+            [ -e "$f" ] || continue
+            base=$(basename "$f" .apk)      # e.g. app-api100-debug
+            variant=${base#app-}            # e.g. api100-debug
+            cp "$f" "dist/JsxposedX-${variant}.apk"
+            found=1
+          done
+          if [ "$found" -ne 1 ]; then
+            echo "No APK files found in artifacts" >&2
+            exit 1
+          fi
+          ls -la dist
+
+      - name: Create/Update Release with APKs
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: V${{ steps.ver.outputs.version }}
+          name: JsxposedX V${{ steps.ver.outputs.version }} Android APK
+          body: |
+            Automated Android APK build (GitHub Actions).
+
+            - Ref: `${{ github.ref_name }}`
+            - Commit: `${{ github.sha }}`
+            - Trigger: `${{ github.event_name }}`
+            - APK artifacts are also available under the Artifacts section of this workflow run (android-apk-*).
+          files: dist/*.apk
+          fail_on_unmatched_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
