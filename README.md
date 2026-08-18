@@ -106,3 +106,7 @@ Build/release note:
 - `.\gradlew.bat :app:bundleApi100Release` goes directly through Android Gradle
 - `.\gradlew.bat :app:assembleApi101Release` goes directly through Android Gradle for the matching release APK
 - for the same flavor, both commands target the same Android release variant output
+
+## CI Status
+
+Android APK is built and published automatically by GitHub Actions (see `.github/workflows/build.yml`).
